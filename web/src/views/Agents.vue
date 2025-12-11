@@ -63,7 +63,6 @@ const regeneratingId = ref<number | null>(null)
 const regenerateId = ref<number | null>(null)
 const showConnectModal = ref(false)
 const connectUrl = ref('')
-const copied = ref(false)
 
 async function loadData() {
   loading.value = true
@@ -160,12 +159,43 @@ async function confirmRegenerate() {
   }
 }
 
+// 复制状态：url 或 command
+const copiedType = ref<'url' | 'command' | null>(null)
+
+// 复制到剪切板的通用函数
+async function copyToClipboard(text: string, type: 'url' | 'command') {
+  try {
+    // 优先使用 Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      // Fallback: 使用 execCommand (兼容 HTTP 环境)
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.style.position = 'fixed'
+      textarea.style.left = '-9999px'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
+    copiedType.value = type
+    setTimeout(() => {
+      copiedType.value = null
+    }, 2000)
+  } catch (err) {
+    console.error('复制失败:', err)
+    alert('复制失败，请手动复制')
+  }
+}
+
 function copyConnectUrl() {
-  navigator.clipboard.writeText(connectUrl.value)
-  copied.value = true
-  setTimeout(() => {
-    copied.value = false
-  }, 2000)
+  copyToClipboard(connectUrl.value, 'url')
+}
+
+function copyCommand() {
+  const command = `./letsync-agent "${connectUrl.value}"`
+  copyToClipboard(command, 'command')
 }
 
 // 过滤和排序后的 Agent 列表
@@ -490,16 +520,23 @@ onUnmounted(() => {
               class="input input-bordered flex-1 font-mono text-xs"
               readonly
             />
-            <button class="btn btn-ghost" @click="copyConnectUrl">
-              <Check v-if="copied" class="w-5 h-5 text-success" />
+            <button class="btn btn-ghost" @click="copyConnectUrl" :title="copiedType === 'url' ? '已复制!' : '复制 URL'">
+              <Check v-if="copiedType === 'url'" class="w-5 h-5 text-success" />
               <Copy v-else class="w-5 h-5" />
             </button>
           </div>
         </div>
 
         <div class="mt-4 p-4 bg-base-200 rounded-lg">
-          <p class="text-sm font-medium mb-2">在目标服务器上运行:</p>
-          <pre class="text-xs overflow-x-auto">./letsync-agent -url "{{ connectUrl }}"</pre>
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-sm font-medium">在目标服务器上运行:</p>
+            <button class="btn btn-ghost btn-xs" @click="copyCommand" :title="copiedType === 'command' ? '已复制!' : '复制命令'">
+              <Check v-if="copiedType === 'command'" class="w-4 h-4 text-success" />
+              <Copy v-else class="w-4 h-4" />
+              <span class="ml-1">{{ copiedType === 'command' ? '已复制' : '复制命令' }}</span>
+            </button>
+          </div>
+          <pre class="text-xs overflow-x-auto bg-base-300 p-2 rounded">./letsync-agent "{{ connectUrl }}"</pre>
         </div>
 
         <div class="modal-action">
