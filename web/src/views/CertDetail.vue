@@ -15,23 +15,55 @@ import {
   FileKey,
   Calendar,
   Globe,
-  Fingerprint
+  Fingerprint,
+  Shield,
+  Key,
+  Hash,
+  Award,
+  Timer,
+  Info,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Server
 } from 'lucide-vue-next'
+import TaskLogModal from '@/components/TaskLogModal.vue'
+
+interface CertInfo {
+  issuer: string
+  issuer_org: string
+  issuer_cn: string
+  subject: string
+  serial_number: string
+  signature_algo: string
+  key_type: string
+  key_size: number
+  not_before: string
+  not_after: string
+  dns_names: string[]
+  validity_days: number
+  days_left: number
+  version: number
+  is_ca: boolean
+}
 
 interface Cert {
   id: number
   domain: string
   san: string[]
   status: string
+  challenge_type: string
+  issued_at: string
   expires_at: string
   created_at: string
   updated_at: string
   dns_provider_id: number
   cert_pem: string
   key_pem: string
+  ca_pem: string
   fullchain_pem: string
   fingerprint: string
-  issuer: string
+  cert_info: CertInfo | null
 }
 
 interface DnsProvider {
@@ -49,6 +81,10 @@ const loading = ref(true)
 const error = ref('')
 const renewing = ref(false)
 const copied = ref('')
+const showLogModal = ref(false)
+const showPemModal = ref(false)
+const pemModalType = ref('')
+const showPrivateKey = ref(false)
 
 const certId = computed(() => Number(route.params.id))
 
@@ -97,15 +133,17 @@ function formatDate(dateStr: string) {
 async function handleRenew() {
   if (!cert.value) return
   renewing.value = true
+
   try {
+    // 续期 API 现在是异步的，会立即返回任务 ID
     await certsApi.renew(cert.value.id)
-    await loadData()
-  } catch (e: unknown) {
-    const err = e as { response?: { data?: { error?: { message?: string } } } }
-    error.value = err.response?.data?.error?.message || '续期失败'
-  } finally {
-    renewing.value = false
+  } catch {
+    // 忽略错误，状态通过日志窗口展示
   }
+
+  // 打开日志窗口，通过 SSE 监听进度
+  showLogModal.value = true
+  renewing.value = false
 }
 
 function copyToClipboard(text: string, type: string) {
@@ -124,6 +162,48 @@ function downloadFile(content: string, filename: string) {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+function openPemModal(type: string) {
+  pemModalType.value = type
+  showPemModal.value = true
+  showPrivateKey.value = false
+}
+
+const pemModalTitle = computed(() => {
+  const titles: Record<string, string> = {
+    cert: '证书 (cert.pem)',
+    key: '私钥 (key.pem)',
+    fullchain: '完整链 (fullchain.pem)',
+    ca: 'CA 证书 (ca.pem)'
+  }
+  return titles[pemModalType.value] || ''
+})
+
+const pemModalContent = computed(() => {
+  if (!cert.value) return ''
+  const contents: Record<string, string> = {
+    cert: cert.value.cert_pem,
+    key: cert.value.key_pem,
+    fullchain: cert.value.fullchain_pem,
+    ca: cert.value.ca_pem
+  }
+  return contents[pemModalType.value] || ''
+})
+
+const pemModalFilename = computed(() => {
+  if (!cert.value) return ''
+  const filenames: Record<string, string> = {
+    cert: `${cert.value.domain}-cert.pem`,
+    key: `${cert.value.domain}-key.pem`,
+    fullchain: `${cert.value.domain}-fullchain.pem`,
+    ca: `${cert.value.domain}-ca.pem`
+  }
+  return filenames[pemModalType.value] || ''
+})
+
+function getChallengeTypeText(type: string) {
+  return type === 'http-01' ? 'HTTP-01' : 'DNS-01'
 }
 
 onMounted(loadData)
@@ -160,9 +240,19 @@ onMounted(loadData)
               </div>
               <div>
                 <h2 class="text-xl font-bold">{{ cert.domain }}</h2>
-                <div :class="['badge gap-1', getStatusBadge(cert.status).class]">
-                  <component :is="getStatusBadge(cert.status).icon" class="w-3 h-3" />
-                  {{ getStatusBadge(cert.status).text }}
+                <div class="flex flex-wrap gap-2 mt-1">
+                  <div :class="['badge gap-1', getStatusBadge(cert.status).class]">
+                    <component :is="getStatusBadge(cert.status).icon" class="w-3 h-3" />
+                    {{ getStatusBadge(cert.status).text }}
+                  </div>
+                  <div class="badge badge-outline gap-1">
+                    <Server class="w-3 h-3" />
+                    {{ getChallengeTypeText(cert.challenge_type) }}
+                  </div>
+                  <div v-if="dnsProvider" class="badge badge-outline gap-1">
+                    <Globe class="w-3 h-3" />
+                    {{ dnsProvider.name }}
+                  </div>
                 </div>
               </div>
             </div>
@@ -176,37 +266,157 @@ onMounted(loadData)
             </button>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div class="flex items-start gap-3">
               <Globe class="w-5 h-5 text-base-content/40 mt-0.5" />
               <div>
                 <p class="text-sm text-base-content/60">SAN 域名</p>
-                <p class="font-medium">
+                <p class="font-medium text-sm">
                   {{ cert.san && cert.san.length > 0 ? cert.san.join(', ') : '-' }}
                 </p>
-              </div>
-            </div>
-            <div class="flex items-start gap-3">
-              <Calendar class="w-5 h-5 text-base-content/40 mt-0.5" />
-              <div>
-                <p class="text-sm text-base-content/60">过期时间</p>
-                <p class="font-medium">{{ formatDate(cert.expires_at) }}</p>
               </div>
             </div>
             <div class="flex items-start gap-3">
               <Fingerprint class="w-5 h-5 text-base-content/40 mt-0.5" />
               <div>
                 <p class="text-sm text-base-content/60">指纹</p>
-                <p class="font-mono text-sm break-all">{{ cert.fingerprint || '-' }}</p>
+                <p class="font-mono text-xs break-all">{{ cert.fingerprint || '-' }}</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <Calendar class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">创建时间</p>
+                <p class="font-medium text-sm">{{ formatDate(cert.created_at) }}</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <Clock class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">更新时间</p>
+                <p class="font-medium text-sm">{{ formatDate(cert.updated_at) }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 证书技术信息 -->
+      <div v-if="cert.cert_info" class="card bg-base-100 shadow-sm">
+        <div class="card-body">
+          <h3 class="card-title text-lg mb-4">
+            <Info class="w-5 h-5" />
+            证书技术信息
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="flex items-start gap-3">
+              <Award class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">颁发者 (Issuer)</p>
+                <p class="font-medium">{{ cert.cert_info.issuer || '-' }}</p>
+                <p v-if="cert.cert_info.issuer_org" class="text-xs text-base-content/50">{{ cert.cert_info.issuer_org }}</p>
               </div>
             </div>
             <div class="flex items-start gap-3">
               <FileKey class="w-5 h-5 text-base-content/40 mt-0.5" />
               <div>
-                <p class="text-sm text-base-content/60">颁发者</p>
-                <p class="font-medium">{{ cert.issuer || 'Let\'s Encrypt' }}</p>
+                <p class="text-sm text-base-content/60">主题 (Subject)</p>
+                <p class="font-medium">{{ cert.cert_info.subject || '-' }}</p>
               </div>
             </div>
+            <div class="flex items-start gap-3">
+              <Hash class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">序列号</p>
+                <p class="font-mono text-xs break-all">{{ cert.cert_info.serial_number || '-' }}</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <Shield class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">签名算法</p>
+                <p class="font-medium">{{ cert.cert_info.signature_algo || '-' }}</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <Key class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">密钥类型</p>
+                <p class="font-medium">
+                  {{ cert.cert_info.key_type || '-' }}
+                  <span v-if="cert.cert_info.key_size" class="text-base-content/60">({{ cert.cert_info.key_size }} bits)</span>
+                </p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <Info class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">版本 / CA</p>
+                <p class="font-medium">
+                  v{{ cert.cert_info.version }}
+                  <span :class="cert.cert_info.is_ca ? 'badge badge-warning badge-sm ml-1' : 'badge badge-ghost badge-sm ml-1'">
+                    {{ cert.cert_info.is_ca ? 'CA' : '终端证书' }}
+                  </span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 有效期信息 -->
+      <div v-if="cert.cert_info" class="card bg-base-100 shadow-sm">
+        <div class="card-body">
+          <h3 class="card-title text-lg mb-4">
+            <Timer class="w-5 h-5" />
+            有效期信息
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="flex items-start gap-3">
+              <Calendar class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">生效时间</p>
+                <p class="font-medium">{{ formatDate(cert.cert_info.not_before) }}</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <Calendar class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">过期时间</p>
+                <p class="font-medium">{{ formatDate(cert.cert_info.not_after) }}</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <Clock class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">有效天数</p>
+                <p class="font-medium">{{ cert.cert_info.validity_days }} 天</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <Timer class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">剩余天数</p>
+                <p :class="['font-medium', cert.cert_info.days_left <= 30 ? 'text-warning' : '', cert.cert_info.days_left <= 7 ? 'text-error' : '']">
+                  {{ cert.cert_info.days_left }} 天
+                  <span v-if="cert.cert_info.days_left <= 7" class="badge badge-error badge-sm ml-1">即将过期</span>
+                  <span v-else-if="cert.cert_info.days_left <= 30" class="badge badge-warning badge-sm ml-1">注意</span>
+                </p>
+              </div>
+            </div>
+          </div>
+          <!-- 进度条显示剩余时间 -->
+          <div class="mt-4">
+            <div class="flex justify-between text-sm mb-1">
+              <span class="text-base-content/60">证书生命周期</span>
+              <span class="text-base-content/60">{{ Math.round((cert.cert_info.validity_days - cert.cert_info.days_left) / cert.cert_info.validity_days * 100) }}% 已使用</span>
+            </div>
+            <progress
+              class="progress w-full"
+              :class="cert.cert_info.days_left <= 7 ? 'progress-error' : cert.cert_info.days_left <= 30 ? 'progress-warning' : 'progress-success'"
+              :value="cert.cert_info.validity_days - cert.cert_info.days_left"
+              :max="cert.cert_info.validity_days"
+            ></progress>
           </div>
         </div>
       </div>
@@ -214,109 +424,104 @@ onMounted(loadData)
       <!-- 证书文件 -->
       <div class="card bg-base-100 shadow-sm">
         <div class="card-body">
-          <h3 class="card-title text-lg mb-4">证书文件</h3>
-
-          <!-- 证书 PEM -->
-          <div class="mb-4">
-            <div class="flex items-center justify-between mb-2">
-              <span class="font-medium">证书 (cert.pem)</span>
-              <div class="flex gap-2">
-                <button
-                  class="btn btn-ghost btn-xs"
-                  @click="copyToClipboard(cert.cert_pem, 'cert')"
-                >
-                  <Check v-if="copied === 'cert'" class="w-4 h-4 text-success" />
-                  <Copy v-else class="w-4 h-4" />
-                </button>
-                <button
-                  class="btn btn-ghost btn-xs"
-                  @click="downloadFile(cert.cert_pem, `${cert.domain}-cert.pem`)"
-                >
-                  <Download class="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <pre class="bg-base-200 rounded-lg p-3 text-xs overflow-x-auto max-h-32">{{ cert.cert_pem || '暂无' }}</pre>
-          </div>
-
-          <!-- 私钥 PEM -->
-          <div class="mb-4">
-            <div class="flex items-center justify-between mb-2">
-              <span class="font-medium">私钥 (key.pem)</span>
-              <div class="flex gap-2">
-                <button
-                  class="btn btn-ghost btn-xs"
-                  @click="copyToClipboard(cert.key_pem, 'key')"
-                >
-                  <Check v-if="copied === 'key'" class="w-4 h-4 text-success" />
-                  <Copy v-else class="w-4 h-4" />
-                </button>
-                <button
-                  class="btn btn-ghost btn-xs"
-                  @click="downloadFile(cert.key_pem, `${cert.domain}-key.pem`)"
-                >
-                  <Download class="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <pre class="bg-base-200 rounded-lg p-3 text-xs overflow-x-auto max-h-32">{{ cert.key_pem ? '******** (已隐藏)' : '暂无' }}</pre>
-          </div>
-
-          <!-- 完整链 PEM -->
-          <div>
-            <div class="flex items-center justify-between mb-2">
-              <span class="font-medium">完整链 (fullchain.pem)</span>
-              <div class="flex gap-2">
-                <button
-                  class="btn btn-ghost btn-xs"
-                  @click="copyToClipboard(cert.fullchain_pem, 'fullchain')"
-                >
-                  <Check v-if="copied === 'fullchain'" class="w-4 h-4 text-success" />
-                  <Copy v-else class="w-4 h-4" />
-                </button>
-                <button
-                  class="btn btn-ghost btn-xs"
-                  @click="downloadFile(cert.fullchain_pem, `${cert.domain}-fullchain.pem`)"
-                >
-                  <Download class="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <pre class="bg-base-200 rounded-lg p-3 text-xs overflow-x-auto max-h-32">{{ cert.fullchain_pem || '暂无' }}</pre>
-          </div>
-        </div>
-      </div>
-
-      <!-- DNS 信息 -->
-      <div class="card bg-base-100 shadow-sm">
-        <div class="card-body">
-          <h3 class="card-title text-lg mb-4">DNS 信息</h3>
-          <div class="flex items-center gap-3">
-            <Globe class="w-5 h-5 text-base-content/40" />
-            <div>
-              <p class="font-medium">{{ dnsProvider?.name || '-' }}</p>
-              <p class="text-sm text-base-content/60">{{ dnsProvider?.type || '-' }}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 时间信息 -->
-      <div class="card bg-base-100 shadow-sm">
-        <div class="card-body">
-          <h3 class="card-title text-lg mb-4">时间信息</h3>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <div>
-              <p class="text-base-content/60">创建时间</p>
-              <p class="font-medium">{{ formatDate(cert.created_at) }}</p>
-            </div>
-            <div>
-              <p class="text-base-content/60">更新时间</p>
-              <p class="font-medium">{{ formatDate(cert.updated_at) }}</p>
-            </div>
+          <h3 class="card-title text-lg mb-4">
+            <FileKey class="w-5 h-5" />
+            证书文件
+          </h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <!-- 证书 -->
+            <button
+              class="btn btn-outline btn-sm gap-2 h-auto py-3 flex-col"
+              :disabled="!cert.cert_pem"
+              @click="openPemModal('cert')"
+            >
+              <FileKey class="w-5 h-5" />
+              <span class="text-xs">cert.pem</span>
+            </button>
+            <!-- 私钥 -->
+            <button
+              class="btn btn-outline btn-warning btn-sm gap-2 h-auto py-3 flex-col"
+              :disabled="!cert.key_pem"
+              @click="openPemModal('key')"
+            >
+              <Key class="w-5 h-5" />
+              <span class="text-xs">key.pem</span>
+            </button>
+            <!-- 完整链 -->
+            <button
+              class="btn btn-outline btn-sm gap-2 h-auto py-3 flex-col"
+              :disabled="!cert.fullchain_pem"
+              @click="openPemModal('fullchain')"
+            >
+              <Shield class="w-5 h-5" />
+              <span class="text-xs">fullchain.pem</span>
+            </button>
+            <!-- CA 证书 -->
+            <button
+              class="btn btn-outline btn-sm gap-2 h-auto py-3 flex-col"
+              :disabled="!cert.ca_pem"
+              @click="openPemModal('ca')"
+            >
+              <Award class="w-5 h-5" />
+              <span class="text-xs">ca.pem</span>
+            </button>
           </div>
         </div>
       </div>
     </template>
+
+    <!-- PEM 内容弹窗 -->
+    <dialog :class="['modal', showPemModal && 'modal-open']">
+      <div class="modal-box max-w-3xl">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-lg">{{ pemModalTitle }}</h3>
+          <div class="flex gap-2">
+            <!-- 私钥显示/隐藏切换 -->
+            <button
+              v-if="pemModalType === 'key'"
+              class="btn btn-ghost btn-sm gap-1"
+              @click="showPrivateKey = !showPrivateKey"
+            >
+              <Eye v-if="!showPrivateKey" class="w-4 h-4" />
+              <EyeOff v-else class="w-4 h-4" />
+              {{ showPrivateKey ? '隐藏' : '显示' }}
+            </button>
+            <button
+              class="btn btn-ghost btn-sm gap-1"
+              @click="copyToClipboard(pemModalContent, pemModalType)"
+            >
+              <Check v-if="copied === pemModalType" class="w-4 h-4 text-success" />
+              <Copy v-else class="w-4 h-4" />
+              复制
+            </button>
+            <button
+              class="btn btn-ghost btn-sm gap-1"
+              @click="downloadFile(pemModalContent, pemModalFilename)"
+            >
+              <Download class="w-4 h-4" />
+              下载
+            </button>
+          </div>
+        </div>
+        <div class="bg-base-200 rounded-lg p-4 max-h-96 overflow-auto">
+          <pre v-if="pemModalType === 'key' && !showPrivateKey" class="text-xs whitespace-pre-wrap break-all text-base-content/60">{{ '********\n私钥内容已隐藏，点击「显示」按钮查看' }}</pre>
+          <pre v-else class="text-xs whitespace-pre-wrap break-all">{{ pemModalContent || '暂无内容' }}</pre>
+        </div>
+        <div class="modal-action">
+          <button class="btn" @click="showPemModal = false">关闭</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop" @click="showPemModal = false">
+        <button>close</button>
+      </form>
+    </dialog>
+
+    <!-- 日志弹窗 -->
+    <TaskLogModal
+      v-if="showLogModal && cert"
+      :certId="cert.id"
+      taskType="renew"
+      @close="showLogModal = false; loadData()"
+    />
   </div>
 </template>

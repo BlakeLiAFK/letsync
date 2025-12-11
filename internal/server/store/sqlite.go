@@ -38,6 +38,8 @@ func InitDB(dataDir string) error {
 		&model.Notification{},
 		&model.Log{},
 		&model.Setting{},
+		&model.TaskLog{},
+		&model.TaskLogStatus{},
 	)
 	if err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)

@@ -84,7 +84,7 @@ func (s *Scheduler) renewCerts() {
 			"expires_at": cert.ExpiresAt,
 		})
 
-		if err := s.acmeService.RenewCertificate(cert.ID); err != nil {
+		if _, err := s.acmeService.RenewCertificate(cert.ID); err != nil {
 			s.logger.Error("scheduler", fmt.Sprintf("证书续期失败: %s", cert.Domain), map[string]interface{}{
 				"cert_id": cert.ID,
 				"error":   err.Error(),

@@ -116,4 +116,28 @@ export const logsApi = {
     api.get('/logs', { params }),
 }
 
+// 任务日志 API
+export const taskLogsApi = {
+  // 获取任务日志列表
+  getLogs: (certId: number, params?: { task_type?: string; limit?: number }) =>
+    api.get(`/certs/${certId}/logs`, { params }),
+
+  // 清空任务日志
+  clearLogs: (certId: number, taskType?: string) => {
+    const url = `/certs/${certId}/logs`
+    if (taskType) {
+      return api.delete(url, { params: { task_type: taskType } })
+    }
+    return api.delete(url)
+  },
+
+  // 创建 EventSource 连接用于实时日志
+  createLogStream: (certId: number, taskType = 'renew') => {
+    const token = localStorage.getItem('token')
+    // 通过查询参数传递 token
+    const url = `/api/certs/${certId}/logs/stream?task_type=${taskType}${token ? `&token=${token}` : ''}`
+    return new EventSource(url)
+  }
+}
+
 export default api

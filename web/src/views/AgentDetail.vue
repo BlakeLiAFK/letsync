@@ -70,6 +70,7 @@ const editing = ref(false)
 
 // 重新生成密钥
 const regenerating = ref(false)
+const showRegenerateConfirm = ref(false)
 const showConnectModal = ref(false)
 const connectUrl = ref('')
 const copied = ref(false)
@@ -167,8 +168,13 @@ async function handleEdit() {
   }
 }
 
+function confirmRegenerate() {
+  showRegenerateConfirm.value = true
+}
+
 async function handleRegenerate() {
   if (!agent.value) return
+  showRegenerateConfirm.value = false
   regenerating.value = true
   try {
     const { data } = await agentsApi.regenerate(agent.value.id)
@@ -315,7 +321,7 @@ onMounted(loadData)
               <button
                 class="btn btn-outline btn-sm"
                 :disabled="regenerating"
-                @click="handleRegenerate"
+                @click="confirmRegenerate"
               >
                 <Key :class="['w-4 h-4', regenerating && 'animate-spin']" />
                 重置密钥
@@ -588,6 +594,32 @@ onMounted(loadData)
       </div>
       <form method="dialog" class="modal-backdrop">
         <button @click="deleteCertId = null">close</button>
+      </form>
+    </dialog>
+
+    <!-- 重置密钥确认 -->
+    <dialog :class="['modal', showRegenerateConfirm && 'modal-open']">
+      <div class="modal-box">
+        <button
+          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          @click="showRegenerateConfirm = false"
+        >
+          <X class="w-4 h-4" />
+        </button>
+        <h3 class="font-bold text-lg flex items-center gap-2">
+          <AlertTriangle class="w-5 h-5 text-warning" />
+          确认重置密钥
+        </h3>
+        <p class="py-4">重置密钥后，该 Agent 需要重新配置连接信息才能继续同步证书。确定要继续吗？</p>
+        <div class="modal-action">
+          <button class="btn" @click="showRegenerateConfirm = false">取消</button>
+          <button class="btn btn-warning" @click="handleRegenerate">
+            确认重置
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click="showRegenerateConfirm = false">close</button>
       </form>
     </dialog>
   </div>

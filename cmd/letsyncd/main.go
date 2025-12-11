@@ -70,6 +70,7 @@ func main() {
 	dnsHandler := api.NewDNSProviderHandler()
 	notifyHandler := api.NewNotificationHandler()
 	settingsHandler := api.NewSettingsHandler()
+	taskLogHandler := api.NewTaskLogHandler()
 
 	// 公开接口
 	r.GET("/api/auth/status", authHandler.Status)
@@ -104,6 +105,16 @@ func main() {
 		apiGroup.POST("/certs/:id/issue", certHandler.Issue)
 		apiGroup.POST("/certs/:id/renew", certHandler.Renew)
 		apiGroup.GET("/certs/:id/download/:type", certHandler.Download)
+
+		// 任务日志 (SSE 实时推送)
+		apiGroup.GET("/certs/:id/logs", taskLogHandler.GetLogs)
+		apiGroup.DELETE("/certs/:id/logs", taskLogHandler.ClearLogs)
+		// SSE 需要特殊的认证中间件，支持通过查询参数传递 token
+		sseGroup := r.Group("/api")
+		sseGroup.Use(middleware.SSEAuth())
+		{
+			sseGroup.GET("/certs/:id/logs/stream", taskLogHandler.LogsStream)
+		}
 
 		// Agent
 		apiGroup.GET("/agents", agentHandler.List)

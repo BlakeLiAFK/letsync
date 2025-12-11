@@ -14,8 +14,10 @@ import {
   XCircle,
   X,
   Play,
-  Save
+  Save,
+  Terminal
 } from 'lucide-vue-next'
+import TaskLogModal from '@/components/TaskLogModal.vue'
 
 interface Cert {
   id: number
@@ -78,6 +80,11 @@ const deleting = ref(false)
 // 申请/续期
 const issuingId = ref<number | null>(null)
 const renewingId = ref<number | null>(null)
+
+// 日志弹窗
+const showLogModal = ref(false)
+const logCertId = ref<number>(0)
+const logTaskType = ref<string>('')
 
 async function loadData() {
   loading.value = true
@@ -177,30 +184,40 @@ async function handleDelete() {
 
 async function handleIssue(id: number) {
   issuingId.value = id
-  error.value = ''
+  const cert = certs.value.find(c => c.id === id)
+
   try {
+    // 申请 API 现在是异步的，会立即返回任务 ID
     await certsApi.issue(id)
-    await loadData()
-  } catch (e: unknown) {
-    const err = e as { response?: { data?: { error?: { message?: string } } } }
-    error.value = err.response?.data?.error?.message || '申请失败'
-  } finally {
-    issuingId.value = null
+  } catch {
+    // 忽略错误，状态通过日志窗口展示
   }
+
+  // 立即打开日志窗口，通过 SSE 监听进度
+  if (cert) {
+    openLogModal(cert, 'issue')
+  }
+
+  issuingId.value = null
 }
 
 async function handleRenew(id: number) {
   renewingId.value = id
-  error.value = ''
+  const cert = certs.value.find(c => c.id === id)
+
   try {
+    // 续期 API 现在是异步的，会立即返回任务 ID
     await certsApi.renew(id)
-    await loadData()
-  } catch (e: unknown) {
-    const err = e as { response?: { data?: { error?: { message?: string } } } }
-    error.value = err.response?.data?.error?.message || '续期失败'
-  } finally {
-    renewingId.value = null
+  } catch {
+    // 忽略错误，状态通过日志窗口展示
   }
+
+  // 立即打开日志窗口，通过 SSE 监听进度
+  if (cert) {
+    openLogModal(cert, 'renew')
+  }
+
+  renewingId.value = null
 }
 
 function openEditModal(cert: Cert) {
@@ -247,6 +264,13 @@ async function handleEdit() {
   } finally {
     editing.value = false
   }
+}
+
+// 打开日志弹窗
+function openLogModal(cert: Cert, taskType: 'renew' | 'issue' = 'renew') {
+  logCertId.value = cert.id
+  logTaskType.value = taskType
+  showLogModal.value = true
 }
 
 const sortedCerts = computed(() => {
@@ -346,27 +370,47 @@ onMounted(loadData)
                 <Edit class="w-4 h-4" />
                 编辑
               </button>
-              <!-- 待申请状态显示申请按钮 -->
-              <button
-                v-if="cert.status === 'pending'"
-                class="btn btn-primary btn-sm"
-                :disabled="issuingId === cert.id"
-                @click="handleIssue(cert.id)"
-              >
-                <Play v-if="issuingId !== cert.id" class="w-4 h-4" />
-                <span v-else class="loading loading-spinner loading-sm"></span>
-                申请
-              </button>
-              <!-- 已申请状态显示续期按钮 -->
-              <button
-                v-else
-                class="btn btn-ghost btn-sm"
-                :disabled="renewingId === cert.id"
-                @click="handleRenew(cert.id)"
-              >
-                <RotateCcw :class="['w-4 h-4', renewingId === cert.id && 'animate-spin']" />
-                续期
-              </button>
+              <!-- 待申请状态显示申请和日志按钮组 -->
+              <div v-if="cert.status === 'pending'" class="flex gap-1">
+                <!-- 查看日志按钮 -->
+                <button
+                  class="btn btn-ghost btn-sm"
+                  @click="openLogModal(cert, 'issue')"
+                >
+                  <Terminal class="w-4 h-4" />
+                  日志
+                </button>
+                <!-- 申请按钮 -->
+                <button
+                  class="btn btn-primary btn-sm"
+                  :disabled="issuingId === cert.id"
+                  @click="handleIssue(cert.id)"
+                >
+                  <Play v-if="issuingId !== cert.id" class="w-4 h-4" />
+                  <span v-else class="loading loading-spinner loading-sm"></span>
+                  申请
+                </button>
+              </div>
+              <!-- 已申请状态显示续期和日志按钮组 -->
+              <div v-else class="flex gap-1">
+                <!-- 查看日志按钮 -->
+                <button
+                  class="btn btn-ghost btn-sm"
+                  @click="openLogModal(cert, 'renew')"
+                >
+                  <Terminal class="w-4 h-4" />
+                  日志
+                </button>
+                <!-- 续期按钮 -->
+                <button
+                  class="btn btn-ghost btn-sm"
+                  :disabled="renewingId === cert.id"
+                  @click="handleRenew(cert.id)"
+                >
+                  <RotateCcw :class="['w-4 h-4', renewingId === cert.id && 'animate-spin']" />
+                  续期
+                </button>
+              </div>
               <button
                 class="btn btn-ghost btn-sm text-error"
                 @click="deleteId = cert.id"
@@ -613,5 +657,13 @@ onMounted(loadData)
         <button @click="deleteId = null">close</button>
       </form>
     </dialog>
+
+    <!-- 任务日志弹窗 -->
+    <TaskLogModal
+      v-if="showLogModal"
+      :certId="logCertId"
+      :taskType="logTaskType"
+      @close="showLogModal = false"
+    />
   </div>
 </template>
