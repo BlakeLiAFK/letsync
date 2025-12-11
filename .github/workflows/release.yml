@@ -44,23 +44,33 @@ jobs:
           # 创建构建目录
           mkdir -p dist
 
-          # 构建 Linux AMD64
+          # ===== 构建 letsyncd (服务端，包含前端) =====
+          # Linux AMD64
           GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsyncd-linux-amd64 ./cmd/letsyncd
-
-          # 构建 Linux ARM64
+          # Linux ARM64
           GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsyncd-linux-arm64 ./cmd/letsyncd
-
-          # 构建 Linux ARMv7
+          # Linux ARMv7
           GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsyncd-linux-armv7 ./cmd/letsyncd
-
-          # 构建 macOS AMD64
+          # macOS AMD64
           GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsyncd-darwin-amd64 ./cmd/letsyncd
-
-          # 构建 macOS ARM64 (Apple Silicon)
+          # macOS ARM64 (Apple Silicon)
           GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsyncd-darwin-arm64 ./cmd/letsyncd
-
-          # 构建 Windows AMD64
+          # Windows AMD64
           GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsyncd-windows-amd64.exe ./cmd/letsyncd
+
+          # ===== 构建 letsync-agent (客户端) =====
+          # Linux AMD64
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsync-agent-linux-amd64 ./cmd/letsync
+          # Linux ARM64
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsync-agent-linux-arm64 ./cmd/letsync
+          # Linux ARMv7
+          GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsync-agent-linux-armv7 ./cmd/letsync
+          # macOS AMD64
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsync-agent-darwin-amd64 ./cmd/letsync
+          # macOS ARM64 (Apple Silicon)
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsync-agent-darwin-arm64 ./cmd/letsync
+          # Windows AMD64
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o dist/letsync-agent-windows-amd64.exe ./cmd/letsync
 
       - name: Create checksums
         run: |
@@ -72,6 +82,7 @@ jobs:
         with:
           files: |
             dist/letsyncd-*
+            dist/letsync-agent-*
             dist/checksums.txt
           draft: false
           prerelease: false

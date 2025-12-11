@@ -15,7 +15,8 @@ import (
 	"github.com/BlakeLiAFK/letsync/internal/agent/reloader"
 )
 
-const Version = "1.0.0"
+// Version 构建时注入的版本号
+var Version = "dev"
 
 func main() {
 	// 命令行参数
