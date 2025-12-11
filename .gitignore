@@ -1,0 +1,28 @@
+# Binaries
+letsyncd
+letsync
+bin/
+dist/
+
+# Data directory
+data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node
+web/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+/tmp/
+*.test
+
+# Plan file (development notes)
+plan.md

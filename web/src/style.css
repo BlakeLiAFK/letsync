@@ -1,0 +1,92 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+/* 自定义样式 */
+html, body, #app {
+  height: 100%;
+  margin: 0;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 响应式容器 */
+.container-custom {
+  @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+}
+
+/* 卡片悬浮效果 */
+.card-hover {
+  @apply transition-shadow hover:shadow-lg;
+}
+
+/* 状态徽章 */
+.badge-status-online {
+  @apply badge-success;
+}
+
+.badge-status-offline {
+  @apply badge-error;
+}
+
+.badge-status-pending {
+  @apply badge-warning;
+}
+
+.badge-status-active {
+  @apply badge-success;
+}
+
+.badge-status-expired {
+  @apply badge-error;
+}
+
+/* 表格优化 */
+.table-compact th,
+.table-compact td {
+  @apply py-2 px-3;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-base-200;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-base-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-base-content/30;
+}
+
+/* 动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-enter-active,
+.slide-leave-active {
+  transition: transform 0.3s ease;
+}
+
+.slide-enter-from {
+  transform: translateX(-100%);
+}
+
+.slide-leave-to {
+  transform: translateX(-100%);
+}
