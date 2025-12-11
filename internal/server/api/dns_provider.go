@@ -95,7 +95,13 @@ func (h *DNSProviderHandler) Create(c *gin.Context) {
 	}
 
 	// 验证类型
-	validTypes := map[string]bool{"cloudflare": true, "aliyun": true, "dnspod": true}
+	validTypes := map[string]bool{
+		"cloudflare": true,
+		"aliyun":     true,
+		"dnspod":     true,
+		"route53":    true,
+		"godaddy":    true,
+	}
 	if !validTypes[req.Type] {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{

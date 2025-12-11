@@ -21,11 +21,21 @@ import (
 
 // webFS 在 embed.go 中定义
 
+// Version 构建时注入的版本号
+var Version = "dev"
+
 func main() {
 	// 解析命令行参数
 	dataDir := flag.String("d", "./data", "数据目录路径")
 	port := flag.Int("p", 0, "临时指定端口 (仅首次启动)")
+	version := flag.Bool("v", false, "显示版本信息")
 	flag.Parse()
+
+	// 显示版本信息
+	if *version {
+		fmt.Printf("Letsync v%s\n", Version)
+		os.Exit(0)
+	}
 
 	// 初始化数据库
 	if err := store.InitDB(*dataDir); err != nil {
@@ -60,7 +70,8 @@ func main() {
 	r.RedirectTrailingSlash = false // 禁用尾部斜杠重定向，避免循环
 	r.RedirectFixedPath = false     // 禁用路径修复重定向
 	r.Use(gin.Recovery())
-	r.Use(middleware.CORS())
+	r.Use(middleware.SecurityHeaders()) // 安全响应头
+	r.Use(middleware.CORS())           // CORS 跨域
 
 	// 初始化 handlers
 	authHandler := api.NewAuthHandler()
@@ -104,7 +115,8 @@ func main() {
 		apiGroup.DELETE("/certs/:id", certHandler.Delete)
 		apiGroup.POST("/certs/:id/issue", certHandler.Issue)
 		apiGroup.POST("/certs/:id/renew", certHandler.Renew)
-		apiGroup.GET("/certs/:id/download/:type", certHandler.Download)
+		// 下载接口添加频率限制
+		apiGroup.GET("/certs/:id/download/:type", middleware.DownloadRateLimit(), certHandler.Download)
 
 		// 任务日志 (SSE 实时推送)
 		apiGroup.GET("/certs/:id/logs", taskLogHandler.GetLogs)
@@ -163,7 +175,7 @@ func main() {
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", host, serverPort)
-	log.Printf("Letsync Server 启动: http://%s", addr)
+	log.Printf("Letsync Server v%s 启动: http://%s", Version, addr)
 	log.Printf("数据目录: %s", *dataDir)
 
 	if settings.IsFirstRun() {

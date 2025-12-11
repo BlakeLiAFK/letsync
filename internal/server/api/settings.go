@@ -31,11 +31,31 @@ func (h *SettingsHandler) GetAll(c *gin.Context) {
 		return
 	}
 
+	// 白名单：允许返回给前端的配置项
+	allowedKeys := map[string]bool{
+		"acme.email":                      true,
+		"acme.ca_url":                     true,
+		"acme.key_type":                   true,
+		"acme.challenge_timeout":          true,
+		"acme.http_port":                  true,
+		"scheduler.renew_before_days":     true,
+		"security.cors_allowed_origins":   true,
+		"security.jwt_expires_hours":      true,
+		"security.behind_proxy":           true,
+		"security.trusted_proxies":        true,
+		"security.password_min_length":    true,
+		"security.password_require_uppercase": true,
+		"security.password_require_lowercase": true,
+		"security.password_require_number":    true,
+		"security.password_require_special":   true,
+		"security.download_rate_limit":    true,
+	}
+
 	// 按分类组织
 	result := make(map[string]map[string]interface{})
 	for _, s := range settings {
-		// 跳过敏感配置
-		if strings.Contains(s.Key, "secret") || strings.Contains(s.Key, "password") || strings.Contains(s.Key, "encryption") {
+		// 只返回白名单中的配置
+		if !allowedKeys[s.Key] {
 			continue
 		}
 
@@ -71,10 +91,30 @@ func (h *SettingsHandler) GetByCategory(c *gin.Context) {
 		return
 	}
 
+	// 白名单：允许返回给前端的配置项
+	allowedKeys := map[string]bool{
+		"acme.email":                      true,
+		"acme.ca_url":                     true,
+		"acme.key_type":                   true,
+		"acme.challenge_timeout":          true,
+		"acme.http_port":                  true,
+		"scheduler.renew_before_days":     true,
+		"security.cors_allowed_origins":   true,
+		"security.jwt_expires_hours":      true,
+		"security.behind_proxy":           true,
+		"security.trusted_proxies":        true,
+		"security.password_min_length":    true,
+		"security.password_require_uppercase": true,
+		"security.password_require_lowercase": true,
+		"security.password_require_number":    true,
+		"security.password_require_special":   true,
+		"security.download_rate_limit":    true,
+	}
+
 	result := make(map[string]interface{})
 	for _, s := range settings {
-		// 跳过敏感配置
-		if strings.Contains(s.Key, "secret") || strings.Contains(s.Key, "password") || strings.Contains(s.Key, "encryption") {
+		// 只返回白名单中的配置
+		if !allowedKeys[s.Key] {
 			continue
 		}
 
@@ -101,9 +141,29 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// 过滤掉敏感配置的直接修改
+	// 白名单：只允许修改这些配置项
+	allowedKeys := map[string]bool{
+		"acme.email":                      true,
+		"acme.ca_url":                     true,
+		"acme.key_type":                   true,
+		"acme.challenge_timeout":          true,
+		"acme.http_port":                  true,
+		"scheduler.renew_before_days":     true,
+		"security.cors_allowed_origins":   true,
+		"security.jwt_expires_hours":      true,
+		"security.behind_proxy":           true,
+		"security.trusted_proxies":        true,
+		"security.password_min_length":    true,
+		"security.password_require_uppercase": true,
+		"security.password_require_lowercase": true,
+		"security.password_require_number":    true,
+		"security.password_require_special":   true,
+		"security.download_rate_limit":    true,
+	}
+
+	// 过滤掉不在白名单中的配置
 	for key := range req {
-		if strings.Contains(key, "secret") || strings.Contains(key, "encryption") {
+		if !allowedKeys[key] {
 			delete(req, key)
 		}
 	}

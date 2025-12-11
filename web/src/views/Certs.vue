@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { certsApi, dnsProvidersApi } from '@/api'
 import {
   Plus,
@@ -15,7 +16,12 @@ import {
   X,
   Play,
   Save,
-  Terminal
+  Terminal,
+  Search,
+  Filter,
+  XCircle as ClearIcon,
+  CheckSquare,
+  Square
 } from 'lucide-vue-next'
 import TaskLogModal from '@/components/TaskLogModal.vue'
 
@@ -39,10 +45,27 @@ interface DnsProvider {
   type: string
 }
 
+const route = useRoute()
+
 const certs = ref<Cert[]>([])
 const dnsProviders = ref<DnsProvider[]>([])
 const loading = ref(true)
 const error = ref('')
+
+// 搜索和过滤 - 从 URL 查询参数初始化
+const searchQuery = ref('')
+const statusFilter = ref((route.query.status as string) || 'all')
+const challengeFilter = ref('all')
+
+// 批量操作
+const selectedIds = ref<number[]>([])
+const showBatchDeleteModal = ref(false)
+const showBatchRenewModal = ref(false)
+const batchOperating = ref(false)
+
+// 分页
+const currentPage = ref(1)
+const pageSize = 20
 
 // 验证方式选项
 const challengeTypes = [
@@ -273,8 +296,35 @@ function openLogModal(cert: Cert, taskType: 'renew' | 'issue' = 'renew') {
   showLogModal.value = true
 }
 
-const sortedCerts = computed(() => {
-  return [...certs.value].sort((a, b) => {
+// 过滤和排序后的证书列表
+const filteredAndSortedCerts = computed(() => {
+  let result = [...certs.value]
+
+  // 搜索过滤
+  if (searchQuery.value.trim()) {
+    const query = searchQuery.value.trim().toLowerCase()
+    result = result.filter(cert => {
+      const domainMatch = cert.domain.toLowerCase().includes(query)
+      const sanMatch = cert.san?.some(s => s.toLowerCase().includes(query))
+      return domainMatch || sanMatch
+    })
+  }
+
+  // 状态过滤
+  if (statusFilter.value !== 'all') {
+    result = result.filter(cert => cert.status === statusFilter.value)
+  }
+
+  // 验证方式过滤
+  if (challengeFilter.value !== 'all') {
+    result = result.filter(cert => {
+      const type = cert.challenge_type || 'dns-01'
+      return type === challengeFilter.value
+    })
+  }
+
+  // 排序
+  return result.sort((a, b) => {
     // 按状态优先级排序: pending > expired > expiring > valid
     const priority: Record<string, number> = { pending: 0, expired: 1, expiring: 2, valid: 3 }
     const pa = priority[a.status] ?? 4
@@ -284,6 +334,119 @@ const sortedCerts = computed(() => {
   })
 })
 
+// 分页后的证书列表
+const paginatedCerts = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  const end = start + pageSize
+  return filteredAndSortedCerts.value.slice(start, end)
+})
+
+// 总页数
+const totalPages = computed(() => {
+  return Math.ceil(filteredAndSortedCerts.value.length / pageSize)
+})
+
+// 保持向后兼容
+const sortedCerts = paginatedCerts
+
+// 切换页码
+function goToPage(page: number) {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+// 清空所有过滤条件
+function clearFilters() {
+  searchQuery.value = ''
+  statusFilter.value = 'all'
+  challengeFilter.value = 'all'
+  currentPage.value = 1
+}
+
+// 监听过滤条件变化，重置页码
+function onFilterChange() {
+  currentPage.value = 1
+}
+
+// 批量操作相关
+const allSelected = computed({
+  get: () => filteredAndSortedCerts.value.length > 0 && selectedIds.value.length === filteredAndSortedCerts.value.length,
+  set: (value) => {
+    if (value) {
+      selectedIds.value = filteredAndSortedCerts.value.map(cert => cert.id)
+    } else {
+      selectedIds.value = []
+    }
+  }
+})
+
+function toggleSelection(id: number) {
+  const index = selectedIds.value.indexOf(id)
+  if (index > -1) {
+    selectedIds.value.splice(index, 1)
+  } else {
+    selectedIds.value.push(id)
+  }
+}
+
+function isSelected(id: number) {
+  return selectedIds.value.includes(id)
+}
+
+// 批量删除
+async function handleBatchDelete() {
+  if (selectedIds.value.length === 0) return
+
+  batchOperating.value = true
+  let successCount = 0
+  let failCount = 0
+
+  for (const id of selectedIds.value) {
+    try {
+      await certsApi.delete(id)
+      successCount++
+    } catch {
+      failCount++
+    }
+  }
+
+  batchOperating.value = false
+  showBatchDeleteModal.value = false
+  selectedIds.value = []
+
+  if (failCount > 0) {
+    error.value = `批量删除完成：成功 ${successCount} 个，失败 ${failCount} 个`
+  }
+
+  await loadData()
+}
+
+// 批量续期
+async function handleBatchRenew() {
+  if (selectedIds.value.length === 0) return
+
+  batchOperating.value = true
+  let successCount = 0
+
+  for (const id of selectedIds.value) {
+    try {
+      await certsApi.renew(id)
+      successCount++
+    } catch {
+      // 忽略错误，继续下一个
+    }
+  }
+
+  batchOperating.value = false
+  showBatchRenewModal.value = false
+  selectedIds.value = []
+
+  // 刷新列表
+  await loadData()
+}
+
 onMounted(loadData)
 </script>
 
@@ -291,14 +454,83 @@ onMounted(loadData)
   <div class="space-y-4">
     <!-- 工具栏 -->
     <div class="flex flex-col sm:flex-row gap-3 justify-between">
-      <button class="btn btn-primary" @click="showCreateModal = true">
-        <Plus class="w-4 h-4" />
-        添加证书
-      </button>
+      <div class="flex gap-2">
+        <button class="btn btn-primary" @click="showCreateModal = true">
+          <Plus class="w-4 h-4" />
+          添加证书
+        </button>
+        <!-- 批量操作按钮 -->
+        <div v-if="selectedIds.length > 0" class="flex gap-2">
+          <button class="btn btn-error btn-sm" @click="showBatchDeleteModal = true">
+            <Trash2 class="w-4 h-4" />
+            批量删除 ({{ selectedIds.length }})
+          </button>
+          <button class="btn btn-ghost btn-sm" @click="showBatchRenewModal = true">
+            <RotateCcw class="w-4 h-4" />
+            批量续期 ({{ selectedIds.length }})
+          </button>
+        </div>
+      </div>
       <button class="btn btn-ghost btn-sm" @click="loadData" :disabled="loading">
         <RefreshCw :class="['w-4 h-4', loading && 'animate-spin']" />
         刷新
       </button>
+    </div>
+
+    <!-- 搜索和过滤栏 -->
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body p-4">
+        <div class="flex flex-col lg:flex-row gap-3">
+          <!-- 搜索框 -->
+          <div class="form-control flex-1">
+            <div class="relative">
+              <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/40" />
+              <input
+                v-model="searchQuery"
+                @input="onFilterChange"
+                type="text"
+                placeholder="搜索域名..."
+                class="input input-bordered w-full pl-10"
+              />
+            </div>
+          </div>
+
+          <!-- 状态过滤 -->
+          <div class="form-control w-full lg:w-48">
+            <select v-model="statusFilter" @change="onFilterChange" class="select select-bordered">
+              <option value="all">全部状态</option>
+              <option value="valid">有效</option>
+              <option value="expiring">即将过期</option>
+              <option value="expired">已过期</option>
+              <option value="pending">待申请</option>
+            </select>
+          </div>
+
+          <!-- 验证方式过滤 -->
+          <div class="form-control w-full lg:w-48">
+            <select v-model="challengeFilter" @change="onFilterChange" class="select select-bordered">
+              <option value="all">全部验证方式</option>
+              <option value="dns-01">DNS-01</option>
+              <option value="http-01">HTTP-01</option>
+            </select>
+          </div>
+
+          <!-- 清空按钮 -->
+          <button
+            v-if="searchQuery || statusFilter !== 'all' || challengeFilter !== 'all'"
+            class="btn btn-ghost btn-sm"
+            @click="clearFilters"
+          >
+            <ClearIcon class="w-4 h-4" />
+            清空
+          </button>
+        </div>
+
+        <!-- 结果计数 -->
+        <div v-if="searchQuery || statusFilter !== 'all' || challengeFilter !== 'all'" class="text-sm text-base-content/60 mt-2">
+          显示 {{ filteredAndSortedCerts.length }} / {{ certs.length }} 个证书
+        </div>
+      </div>
     </div>
 
     <!-- 错误提示 -->
@@ -325,13 +557,34 @@ onMounted(loadData)
 
     <!-- 证书列表 -->
     <div v-else class="space-y-3">
+      <!-- 全选控件 -->
+      <div v-if="filteredAndSortedCerts.length > 0" class="flex items-center gap-2 px-2">
+        <label class="cursor-pointer flex items-center gap-2">
+          <input type="checkbox" v-model="allSelected" class="checkbox checkbox-sm" />
+          <span class="text-sm text-base-content/60">全选</span>
+        </label>
+        <span v-if="selectedIds.length > 0" class="text-sm text-base-content/60">
+          已选择 {{ selectedIds.length }} 个证书
+        </span>
+      </div>
+
       <div
         v-for="cert in sortedCerts"
         :key="cert.id"
-        class="card bg-base-100 shadow-sm hover:shadow-md transition-shadow"
+        :class="['card bg-base-100 shadow-sm hover:shadow-md transition-shadow', isSelected(cert.id) && 'ring-2 ring-primary']"
       >
         <div class="card-body p-4">
           <div class="flex flex-col lg:flex-row lg:items-center gap-4">
+            <!-- 复选框 -->
+            <div class="flex items-center">
+              <input
+                type="checkbox"
+                :checked="isSelected(cert.id)"
+                @change="toggleSelection(cert.id)"
+                class="checkbox checkbox-sm"
+              />
+            </div>
+
             <!-- 主要信息 -->
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 mb-2">
@@ -657,6 +910,136 @@ onMounted(loadData)
         <button @click="deleteId = null">close</button>
       </form>
     </dialog>
+
+    <!-- 批量删除确认模态框 -->
+    <dialog :class="['modal', showBatchDeleteModal && 'modal-open']">
+      <div class="modal-box">
+        <button
+          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          @click="showBatchDeleteModal = false"
+        >
+          <X class="w-4 h-4" />
+        </button>
+        <h3 class="font-bold text-lg">确认批量删除</h3>
+        <p class="py-4">确定要删除选中的 {{ selectedIds.length }} 个证书吗？此操作不可恢复。</p>
+        <div class="modal-action">
+          <button class="btn" @click="showBatchDeleteModal = false">取消</button>
+          <button class="btn btn-error" :disabled="batchOperating" @click="handleBatchDelete">
+            <span v-if="batchOperating" class="loading loading-spinner loading-sm"></span>
+            删除
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click="showBatchDeleteModal = false">close</button>
+      </form>
+    </dialog>
+
+    <!-- 批量续期确认模态框 -->
+    <dialog :class="['modal', showBatchRenewModal && 'modal-open']">
+      <div class="modal-box">
+        <button
+          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          @click="showBatchRenewModal = false"
+        >
+          <X class="w-4 h-4" />
+        </button>
+        <h3 class="font-bold text-lg">确认批量续期</h3>
+        <p class="py-4">确定要为选中的 {{ selectedIds.length }} 个证书申请续期吗？</p>
+        <div class="alert alert-info text-sm mb-4">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          <span>续期操作将异步执行，可在证书列表查看进度</span>
+        </div>
+        <div class="modal-action">
+          <button class="btn" @click="showBatchRenewModal = false">取消</button>
+          <button class="btn btn-primary" :disabled="batchOperating" @click="handleBatchRenew">
+            <span v-if="batchOperating" class="loading loading-spinner loading-sm"></span>
+            确认续期
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click="showBatchRenewModal = false">close</button>
+      </form>
+    </dialog>
+
+    <!-- 分页控件 -->
+    <div v-if="totalPages > 1" class="flex justify-center mt-6">
+      <div class="join">
+        <!-- 上一页 -->
+        <button
+          class="join-item btn btn-sm"
+          :disabled="currentPage === 1"
+          @click="goToPage(currentPage - 1)"
+        >
+          «
+        </button>
+
+        <!-- 页码 -->
+        <template v-if="totalPages <= 7">
+          <!-- 少于7页，全部显示 -->
+          <button
+            v-for="page in totalPages"
+            :key="page"
+            :class="['join-item btn btn-sm', currentPage === page && 'btn-active']"
+            @click="goToPage(page)"
+          >
+            {{ page }}
+          </button>
+        </template>
+        <template v-else>
+          <!-- 大于7页，显示省略号 -->
+          <button
+            :class="['join-item btn btn-sm', currentPage === 1 && 'btn-active']"
+            @click="goToPage(1)"
+          >
+            1
+          </button>
+
+          <button v-if="currentPage > 3" class="join-item btn btn-sm btn-disabled">
+            ...
+          </button>
+
+          <template v-for="page in [currentPage - 1, currentPage, currentPage + 1]" :key="page">
+            <button
+              v-if="page > 1 && page < totalPages"
+              :class="['join-item btn btn-sm', currentPage === page && 'btn-active']"
+              @click="goToPage(page)"
+            >
+              {{ page }}
+            </button>
+          </template>
+
+          <button v-if="currentPage < totalPages - 2" class="join-item btn btn-sm btn-disabled">
+            ...
+          </button>
+
+          <button
+            :class="['join-item btn btn-sm', currentPage === totalPages && 'btn-active']"
+            @click="goToPage(totalPages)"
+          >
+            {{ totalPages }}
+          </button>
+        </template>
+
+        <!-- 下一页 -->
+        <button
+          class="join-item btn btn-sm"
+          :disabled="currentPage === totalPages"
+          @click="goToPage(currentPage + 1)"
+        >
+          »
+        </button>
+      </div>
+    </div>
+
+    <!-- 分页统计信息 -->
+    <div v-if="filteredAndSortedCerts.length > 0" class="text-center text-sm text-base-content/60 mt-2">
+      显示第 {{ (currentPage - 1) * pageSize + 1 }} - {{ Math.min(currentPage * pageSize, filteredAndSortedCerts.length) }} 项，
+      共 {{ filteredAndSortedCerts.length }} 项
+    </div>
 
     <!-- 任务日志弹窗 -->
     <TaskLogModal

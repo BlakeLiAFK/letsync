@@ -69,13 +69,16 @@ func (h *NotificationHandler) Get(c *gin.Context) {
 		return
 	}
 
+	// Config 是加密字符串，暂不解密返回给前端
+	// 前端编辑时只能重新输入敏感字段
 	c.JSON(http.StatusOK, gin.H{
-		"id":         notification.ID,
-		"name":       notification.Name,
-		"type":       notification.Type,
-		"config":     notification.Config,
-		"enabled":    notification.Enabled,
-		"created_at": notification.CreatedAt,
+		"data": gin.H{
+			"id":         notification.ID,
+			"name":       notification.Name,
+			"type":       notification.Type,
+			"enabled":    notification.Enabled,
+			"created_at": notification.CreatedAt,
+		},
 	})
 }
 

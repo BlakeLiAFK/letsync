@@ -120,7 +120,7 @@ func NewAuthHandler() *AuthHandler {
 
 // Login 登录
 func (h *AuthHandler) Login(c *gin.Context) {
-	clientIP := c.ClientIP()
+	clientIP := middleware.GetRealIP(c)
 
 	// 检查是否被锁定
 	if limiter.isLocked(clientIP) {
@@ -203,14 +203,25 @@ func (h *AuthHandler) SetupPassword(c *gin.Context) {
 	}
 
 	var req struct {
-		Password string `json:"password" binding:"required,min=6"`
+		Password string `json:"password" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "INVALID_REQUEST",
-				"message": "密码长度至少 6 位",
+				"message": "密码不能为空",
+			},
+		})
+		return
+	}
+
+	// 验证密码强度
+	if err := h.settings.ValidatePasswordStrength(req.Password); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "WEAK_PASSWORD",
+				"message": err.Error(),
 			},
 		})
 		return
@@ -227,7 +238,7 @@ func (h *AuthHandler) SetupPassword(c *gin.Context) {
 	}
 
 	h.logger.Info("auth", "首次设置密码", map[string]interface{}{
-		"ip": c.ClientIP(),
+		"ip": middleware.GetRealIP(c),
 	})
 
 	// 设置完密码后自动登录
@@ -252,7 +263,7 @@ func (h *AuthHandler) SetupPassword(c *gin.Context) {
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	var req struct {
 		OldPassword string `json:"old_password" binding:"required"`
-		NewPassword string `json:"new_password" binding:"required,min=6"`
+		NewPassword string `json:"new_password" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -275,6 +286,17 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
+	// 验证新密码强度
+	if err := h.settings.ValidatePasswordStrength(req.NewPassword); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "WEAK_PASSWORD",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
 	if err := h.settings.SetAdminPassword(req.NewPassword); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
@@ -286,7 +308,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	}
 
 	h.logger.Info("auth", "密码已修改", map[string]interface{}{
-		"ip": c.ClientIP(),
+		"ip": middleware.GetRealIP(c),
 	})
 
 	c.JSON(http.StatusOK, gin.H{

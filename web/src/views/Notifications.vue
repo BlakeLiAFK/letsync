@@ -317,13 +317,22 @@ onMounted(loadData)
 
           <template v-if="form.type">
             <div class="divider text-sm">配置{{ isEdit ? ' (留空则不修改)' : '' }}</div>
+
+            <!-- 编辑模式提示 -->
+            <div v-if="isEdit" class="alert alert-info text-sm mb-4">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              <span>敏感字段已隐藏显示，留空则保持原值不变</span>
+            </div>
+
             <div v-for="field in getConfigFields(form.type)" :key="field" class="form-control">
               <label class="label">
                 <span class="label-text">{{ field }}{{ isEdit ? '' : ' *' }}</span>
               </label>
               <input
                 v-model="form.config[field]"
-                :type="field.includes('pass') || field.includes('token') || field.includes('secret') ? 'password' : 'text'"
+                :type="field.includes('pass') || field.includes('token') || field.includes('secret') || field.includes('key') ? 'password' : 'text'"
                 class="input input-bordered"
                 :placeholder="isEdit ? '留空则不修改' : ''"
               />

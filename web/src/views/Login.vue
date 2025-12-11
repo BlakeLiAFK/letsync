@@ -72,7 +72,7 @@ async function handleSubmit() {
         <div class="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-primary/10 mb-4">
           <Shield class="w-10 h-10 text-primary" />
         </div>
-        <h1 class="text-3xl font-bold text-base-content">Letsync</h1>
+        <h1 class="text-3xl font-bold text-base-content">Let'sync</h1>
         <p class="text-base-content/60 mt-2">SSL 证书自动化管理平台</p>
       </div>
 
@@ -148,7 +148,7 @@ async function handleSubmit() {
 
       <!-- 底部信息 -->
       <p class="text-center text-base-content/40 text-sm mt-6">
-        Letsync - 让证书管理更简单
+        Let'sync - 让证书管理更简单
       </p>
     </div>
   </div>

@@ -82,7 +82,7 @@ function closeSidebar() {
           <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
             <Shield class="w-6 h-6 text-primary" />
           </div>
-          <span class="text-xl font-bold">Letsync</span>
+          <span class="text-xl font-bold">Let'sync</span>
         </div>
         <button class="lg:hidden btn btn-ghost btn-sm btn-square" @click="closeSidebar">
           <X class="w-5 h-5" />

@@ -1,8 +1,9 @@
 # Binaries
-letsyncd
-letsync
+/letsyncd
+/letsync
+/letsync-agent
 bin/
-dist/
+/dist/
 
 # Data directory
 data/

@@ -116,14 +116,24 @@ func (s *AgentService) RegenerateSignature(id uint) (string, error) {
 		return "", err
 	}
 
+	// 生成新的 UUID 和签名,彻底重置凭证
+	newUUID := uuid.New().String()
 	secret := s.settings.Get("security.agent_secret")
-	newSignature := crypto.GenerateSignature(agent.UUID+time.Now().String(), secret)
+	newSignature := crypto.GenerateSignature(newUUID, secret)
 
-	if err := store.GetDB().Model(agent).Update("signature", newSignature).Error; err != nil {
+	// 同时更新 UUID 和签名
+	if err := store.GetDB().Model(agent).Updates(map[string]interface{}{
+		"uuid":      newUUID,
+		"signature": newSignature,
+	}).Error; err != nil {
 		return "", err
 	}
 
-	s.logger.Info("agent", fmt.Sprintf("重新生成签名: %s", agent.Name), map[string]interface{}{
+	// 更新 agent 对象以返回正确的连接 URL
+	agent.UUID = newUUID
+	agent.Signature = newSignature
+
+	s.logger.Info("agent", fmt.Sprintf("重新生成凭证: %s", agent.Name), map[string]interface{}{
 		"agent_id": agent.ID,
 	})
 
@@ -132,10 +142,18 @@ func (s *AgentService) RegenerateSignature(id uint) (string, error) {
 
 // VerifySignature 验证签名
 func (s *AgentService) VerifySignature(uuid, signature string) (*model.Agent, error) {
+	// 先根据 UUID 查询 Agent
 	var agent model.Agent
-	if err := store.GetDB().Where("uuid = ? AND signature = ?", uuid, signature).First(&agent).Error; err != nil {
+	if err := store.GetDB().Where("uuid = ?", uuid).First(&agent).Error; err != nil {
 		return nil, fmt.Errorf("签名验证失败")
 	}
+
+	// 使用 crypto 包的 HMAC 验证函数进行时间恒定比较
+	secret := s.settings.Get("security.agent_secret")
+	if !crypto.VerifySignature(uuid, signature, secret) {
+		return nil, fmt.Errorf("签名验证失败")
+	}
+
 	return &agent, nil
 }
 
