@@ -39,14 +39,20 @@ func (h *CertHandler) List(c *gin.Context) {
 	// 转换为前端需要的格式
 	var data []gin.H
 	for _, cert := range certs {
+		challengeType := cert.ChallengeType
+		if challengeType == "" {
+			challengeType = "dns-01" // 兼容旧数据
+		}
+
 		item := gin.H{
-			"id":          cert.ID,
-			"domain":      cert.Domain,
-			"san":         cert.GetSANList(),
-			"fingerprint": cert.Fingerprint,
-			"issued_at":   cert.IssuedAt,
-			"expires_at":  cert.ExpiresAt,
-			"status":      cert.Status,
+			"id":             cert.ID,
+			"domain":         cert.Domain,
+			"san":            cert.GetSANList(),
+			"fingerprint":    cert.Fingerprint,
+			"issued_at":      cert.IssuedAt,
+			"expires_at":     cert.ExpiresAt,
+			"challenge_type": challengeType,
+			"status":         cert.Status,
 		}
 
 		if cert.DNSProvider != nil {
@@ -89,17 +95,24 @@ func (h *CertHandler) Get(c *gin.Context) {
 	// 获取使用该证书的 Agent
 	agents, _ := h.certService.GetAgents(cert.ID)
 
+	challengeType := cert.ChallengeType
+	if challengeType == "" {
+		challengeType = "dns-01"
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"id":            cert.ID,
-		"domain":        cert.Domain,
-		"san":           cert.GetSANList(),
-		"cert_pem":      string(cert.CertPEM),
-		"fullchain_pem": string(cert.FullchainPEM),
-		"fingerprint":   cert.Fingerprint,
-		"issued_at":     cert.IssuedAt,
-		"expires_at":    cert.ExpiresAt,
-		"status":        cert.Status,
-		"agents":        agents,
+		"id":              cert.ID,
+		"domain":          cert.Domain,
+		"san":             cert.GetSANList(),
+		"cert_pem":        string(cert.CertPEM),
+		"fullchain_pem":   string(cert.FullchainPEM),
+		"fingerprint":     cert.Fingerprint,
+		"issued_at":       cert.IssuedAt,
+		"expires_at":      cert.ExpiresAt,
+		"challenge_type":  challengeType,
+		"dns_provider_id": cert.DNSProviderID,
+		"status":          cert.Status,
+		"agents":          agents,
 	})
 }
 
@@ -108,7 +121,8 @@ func (h *CertHandler) Create(c *gin.Context) {
 	var req struct {
 		Domain        string   `json:"domain" binding:"required"`
 		SAN           []string `json:"san"`
-		DNSProviderID uint     `json:"dns_provider_id" binding:"required"`
+		ChallengeType string   `json:"challenge_type"` // dns-01 或 http-01，默认 dns-01
+		DNSProviderID uint     `json:"dns_provider_id"` // DNS-01 时必填
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -121,8 +135,25 @@ func (h *CertHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// 验证方式默认为 dns-01
+	challengeType := req.ChallengeType
+	if challengeType == "" {
+		challengeType = "dns-01"
+	}
+
+	// 验证参数
+	if challengeType == "dns-01" && req.DNSProviderID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "INVALID_REQUEST",
+				"message": "DNS-01 验证方式需要选择 DNS 提供商",
+			},
+		})
+		return
+	}
+
 	// 先创建证书记录，状态为 pending
-	cert, err := h.certService.CreatePending(req.Domain, req.SAN, req.DNSProviderID)
+	cert, err := h.certService.CreatePendingWithChallenge(req.Domain, req.SAN, req.DNSProviderID, challengeType)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
@@ -134,9 +165,10 @@ func (h *CertHandler) Create(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":     cert.ID,
-		"domain": cert.Domain,
-		"status": cert.Status,
+		"id":             cert.ID,
+		"domain":         cert.Domain,
+		"challenge_type": cert.ChallengeType,
+		"status":         cert.Status,
 	})
 }
 
@@ -165,8 +197,19 @@ func (h *CertHandler) Issue(c *gin.Context) {
 		return
 	}
 
-	// 调用 ACME 服务申请证书
-	resource, err := h.acmeService.RequestCertificate(cert.Domain, cert.GetSANList(), cert.DNSProviderID)
+	// 验证方式
+	challengeType := cert.ChallengeType
+	if challengeType == "" {
+		challengeType = "dns-01"
+	}
+
+	// 调用 ACME 服务申请证书（支持不同验证方式）
+	resource, err := h.acmeService.RequestCertificateWithChallenge(service.CertRequest{
+		Domain:        cert.Domain,
+		SAN:           cert.GetSANList(),
+		ChallengeType: challengeType,
+		DNSProviderID: cert.DNSProviderID,
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
@@ -219,6 +262,73 @@ func (h *CertHandler) Issue(c *gin.Context) {
 		"fingerprint": cert.Fingerprint,
 		"expires_at":  cert.ExpiresAt,
 		"status":      cert.Status,
+	})
+}
+
+// Edit 编辑证书配置
+func (h *CertHandler) Edit(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "INVALID_REQUEST",
+				"message": "无效的证书 ID",
+			},
+		})
+		return
+	}
+
+	var req struct {
+		Domain        string   `json:"domain" binding:"required"`
+		SAN           []string `json:"san"`
+		ChallengeType string   `json:"challenge_type"` // dns-01 或 http-01
+		DNSProviderID uint     `json:"dns_provider_id"` // DNS-01 时必填
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "INVALID_REQUEST",
+				"message": "参数错误",
+			},
+		})
+		return
+	}
+
+	// 验证方式
+	challengeType := req.ChallengeType
+	if challengeType == "" {
+		challengeType = "dns-01"
+	}
+
+	// 验证参数
+	if challengeType == "dns-01" && req.DNSProviderID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "INVALID_REQUEST",
+				"message": "DNS-01 验证方式需要选择 DNS 提供商",
+			},
+		})
+		return
+	}
+
+	if err := h.certService.UpdateConfigWithChallenge(uint(id), req.Domain, req.SAN, req.DNSProviderID, challengeType); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": gin.H{
+				"code":    "INTERNAL_ERROR",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	cert, _ := h.certService.Get(uint(id))
+	c.JSON(http.StatusOK, gin.H{
+		"id":             cert.ID,
+		"domain":         cert.Domain,
+		"san":            cert.GetSANList(),
+		"challenge_type": cert.ChallengeType,
+		"status":         cert.Status,
 	})
 }
 

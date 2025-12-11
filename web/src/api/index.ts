@@ -47,8 +47,10 @@ export const certsApi = {
   list: () => api.get('/certs'),
   stats: () => api.get('/certs/stats'),
   get: (id: number) => api.get(`/certs/${id}`),
-  create: (data: { domain: string; san: string[]; dns_provider_id: number }) =>
+  create: (data: { domain: string; san: string[]; challenge_type?: string; dns_provider_id: number }) =>
     api.post('/certs', data),
+  update: (id: number, data: { domain: string; san: string[]; challenge_type?: string; dns_provider_id: number }) =>
+    api.put(`/certs/${id}`, data),
   delete: (id: number) => api.delete(`/certs/${id}`),
   issue: (id: number) => api.post(`/certs/${id}/issue`),
   renew: (id: number) => api.post(`/certs/${id}/renew`),

@@ -6,13 +6,15 @@ import {
   RefreshCw,
   Trash2,
   Eye,
+  Edit,
   RotateCcw,
   AlertTriangle,
   CheckCircle,
   Clock,
   XCircle,
   X,
-  Play
+  Play,
+  Save
 } from 'lucide-vue-next'
 
 interface Cert {
@@ -20,6 +22,7 @@ interface Cert {
   domain: string
   san: string[]
   status: string
+  challenge_type: string
   expires_at: string
   created_at: string
   dns_provider?: {
@@ -39,15 +42,34 @@ const dnsProviders = ref<DnsProvider[]>([])
 const loading = ref(true)
 const error = ref('')
 
+// 验证方式选项
+const challengeTypes = [
+  { value: 'dns-01', label: 'DNS-01 (推荐)', desc: '通过 DNS TXT 记录验证，支持内网环境' },
+  { value: 'http-01', label: 'HTTP-01', desc: '通过 HTTP 请求验证，需要 80 端口可公网访问' }
+]
+
 // 新建证书表单
 const showCreateModal = ref(false)
 const createForm = ref({
   domain: '',
   san: '',
+  challenge_type: 'dns-01',
   dns_provider_id: 0
 })
 const creating = ref(false)
 const createError = ref('')
+
+// 编辑证书
+const showEditModal = ref(false)
+const editId = ref<number | null>(null)
+const editForm = ref({
+  domain: '',
+  san: '',
+  challenge_type: 'dns-01',
+  dns_provider_id: 0
+})
+const editing = ref(false)
+const editError = ref('')
 
 // 删除确认
 const deleteId = ref<number | null>(null)
@@ -109,7 +131,8 @@ async function handleCreate() {
     createError.value = '请输入域名'
     return
   }
-  if (!createForm.value.dns_provider_id) {
+  // DNS-01 验证需要选择 DNS 提供商
+  if (createForm.value.challenge_type === 'dns-01' && !createForm.value.dns_provider_id) {
     createError.value = '请选择 DNS 提供商'
     return
   }
@@ -122,10 +145,11 @@ async function handleCreate() {
     await certsApi.create({
       domain: createForm.value.domain,
       san,
-      dns_provider_id: createForm.value.dns_provider_id
+      challenge_type: createForm.value.challenge_type,
+      dns_provider_id: createForm.value.challenge_type === 'dns-01' ? createForm.value.dns_provider_id : 0
     })
     showCreateModal.value = false
-    createForm.value = { domain: '', san: '', dns_provider_id: 0 }
+    createForm.value = { domain: '', san: '', challenge_type: 'dns-01', dns_provider_id: 0 }
     await loadData()
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: { message?: string } } } }
@@ -176,6 +200,52 @@ async function handleRenew(id: number) {
     error.value = err.response?.data?.error?.message || '续期失败'
   } finally {
     renewingId.value = null
+  }
+}
+
+function openEditModal(cert: Cert) {
+  editId.value = cert.id
+  editForm.value = {
+    domain: cert.domain,
+    san: cert.san ? cert.san.join(', ') : '',
+    challenge_type: cert.challenge_type || 'dns-01',
+    dns_provider_id: cert.dns_provider?.id || 0
+  }
+  editError.value = ''
+  showEditModal.value = true
+}
+
+async function handleEdit() {
+  editError.value = ''
+  if (!editForm.value.domain) {
+    editError.value = '请输入域名'
+    return
+  }
+  // DNS-01 验证需要选择 DNS 提供商
+  if (editForm.value.challenge_type === 'dns-01' && !editForm.value.dns_provider_id) {
+    editError.value = '请选择 DNS 提供商'
+    return
+  }
+  if (!editId.value) return
+
+  editing.value = true
+  try {
+    const san = editForm.value.san
+      ? editForm.value.san.split(',').map(s => s.trim()).filter(Boolean)
+      : []
+    await certsApi.update(editId.value, {
+      domain: editForm.value.domain,
+      san,
+      challenge_type: editForm.value.challenge_type,
+      dns_provider_id: editForm.value.challenge_type === 'dns-01' ? editForm.value.dns_provider_id : 0
+    })
+    showEditModal.value = false
+    await loadData()
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: { message?: string } } } }
+    editError.value = err.response?.data?.error?.message || '保存失败'
+  } finally {
+    editing.value = false
   }
 }
 
@@ -251,7 +321,10 @@ onMounted(loadData)
                 <span v-if="cert.san && cert.san.length > 0">
                   SAN: {{ cert.san.join(', ') }}
                 </span>
-                <span>DNS: {{ getDnsProviderName(cert) }}</span>
+                <span class="badge badge-xs badge-outline">
+                  {{ cert.challenge_type === 'http-01' ? 'HTTP-01' : 'DNS-01' }}
+                </span>
+                <span v-if="cert.challenge_type !== 'http-01'">DNS: {{ getDnsProviderName(cert) }}</span>
                 <span v-if="cert.expires_at">过期: {{ formatDate(cert.expires_at) }}</span>
               </div>
             </div>
@@ -265,6 +338,14 @@ onMounted(loadData)
                 <Eye class="w-4 h-4" />
                 详情
               </router-link>
+              <!-- 编辑按钮 -->
+              <button
+                class="btn btn-ghost btn-sm"
+                @click="openEditModal(cert)"
+              >
+                <Edit class="w-4 h-4" />
+                编辑
+              </button>
               <!-- 待申请状态显示申请按钮 -->
               <button
                 v-if="cert.status === 'pending'"
@@ -341,6 +422,31 @@ onMounted(loadData)
 
           <div class="form-control">
             <label class="label">
+              <span class="label-text">验证方式 *</span>
+            </label>
+            <div class="space-y-2">
+              <label
+                v-for="ct in challengeTypes"
+                :key="ct.value"
+                class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
+                :class="createForm.challenge_type === ct.value ? 'border-primary bg-primary/5' : 'border-base-300 hover:border-base-content/30'"
+              >
+                <input
+                  type="radio"
+                  :value="ct.value"
+                  v-model="createForm.challenge_type"
+                  class="radio radio-primary mt-0.5"
+                />
+                <div>
+                  <div class="font-medium">{{ ct.label }}</div>
+                  <div class="text-sm text-base-content/60">{{ ct.desc }}</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div v-if="createForm.challenge_type === 'dns-01'" class="form-control">
+            <label class="label">
               <span class="label-text">DNS 提供商 *</span>
             </label>
             <select v-model="createForm.dns_provider_id" class="select select-bordered">
@@ -349,6 +455,15 @@ onMounted(loadData)
                 {{ p.name }} ({{ p.type }})
               </option>
             </select>
+          </div>
+
+          <div v-if="createForm.challenge_type === 'http-01'" class="text-sm text-warning bg-warning/10 p-3 rounded-lg">
+            <p class="font-medium mb-1">HTTP-01 验证注意事项：</p>
+            <ul class="list-disc list-inside space-y-1 text-base-content/70">
+              <li>域名需解析到本服务器 IP</li>
+              <li>80 端口需从公网可访问</li>
+              <li>不支持通配符证书</li>
+            </ul>
           </div>
 
           <div class="text-sm text-base-content/60 bg-base-200 p-3 rounded-lg">
@@ -366,6 +481,112 @@ onMounted(loadData)
       </div>
       <form method="dialog" class="modal-backdrop">
         <button @click="showCreateModal = false">close</button>
+      </form>
+    </dialog>
+
+    <!-- 编辑证书模态框 -->
+    <dialog :class="['modal', showEditModal && 'modal-open']">
+      <div class="modal-box">
+        <button
+          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          @click="showEditModal = false"
+        >
+          <X class="w-4 h-4" />
+        </button>
+        <h3 class="font-bold text-lg mb-4">编辑证书</h3>
+
+        <form @submit.prevent="handleEdit" class="space-y-4">
+          <div v-if="editError" class="alert alert-error text-sm">
+            {{ editError }}
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">主域名 *</span>
+            </label>
+            <input
+              v-model="editForm.domain"
+              type="text"
+              class="input input-bordered"
+              placeholder="example.com"
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">SAN 域名</span>
+              <span class="label-text-alt">多个用逗号分隔</span>
+            </label>
+            <input
+              v-model="editForm.san"
+              type="text"
+              class="input input-bordered"
+              placeholder="www.example.com, api.example.com"
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">验证方式 *</span>
+            </label>
+            <div class="space-y-2">
+              <label
+                v-for="ct in challengeTypes"
+                :key="ct.value"
+                class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
+                :class="editForm.challenge_type === ct.value ? 'border-primary bg-primary/5' : 'border-base-300 hover:border-base-content/30'"
+              >
+                <input
+                  type="radio"
+                  :value="ct.value"
+                  v-model="editForm.challenge_type"
+                  class="radio radio-primary mt-0.5"
+                />
+                <div>
+                  <div class="font-medium">{{ ct.label }}</div>
+                  <div class="text-sm text-base-content/60">{{ ct.desc }}</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div v-if="editForm.challenge_type === 'dns-01'" class="form-control">
+            <label class="label">
+              <span class="label-text">DNS 提供商 *</span>
+            </label>
+            <select v-model="editForm.dns_provider_id" class="select select-bordered">
+              <option :value="0" disabled>请选择</option>
+              <option v-for="p in dnsProviders" :key="p.id" :value="p.id">
+                {{ p.name }} ({{ p.type }})
+              </option>
+            </select>
+          </div>
+
+          <div v-if="editForm.challenge_type === 'http-01'" class="text-sm text-warning bg-warning/10 p-3 rounded-lg">
+            <p class="font-medium mb-1">HTTP-01 验证注意事项：</p>
+            <ul class="list-disc list-inside space-y-1 text-base-content/70">
+              <li>域名需解析到本服务器 IP</li>
+              <li>80 端口需从公网可访问</li>
+              <li>不支持通配符证书</li>
+            </ul>
+          </div>
+
+          <div class="text-sm text-base-content/60 bg-base-200 p-3 rounded-lg">
+            <p>修改配置后，如果证书已申请，需要重新申请或续期才能生效。</p>
+          </div>
+
+          <div class="modal-action">
+            <button type="button" class="btn" @click="showEditModal = false">取消</button>
+            <button type="submit" class="btn btn-primary" :disabled="editing">
+              <span v-if="editing" class="loading loading-spinner loading-sm"></span>
+              <Save v-else class="w-4 h-4" />
+              保存
+            </button>
+          </div>
+        </form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click="showEditModal = false">close</button>
       </form>
     </dialog>
 

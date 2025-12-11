@@ -99,6 +99,7 @@ func main() {
 		apiGroup.GET("/certs/stats", certHandler.Stats)
 		apiGroup.POST("/certs", certHandler.Create)
 		apiGroup.GET("/certs/:id", certHandler.Get)
+		apiGroup.PUT("/certs/:id", certHandler.Edit)
 		apiGroup.DELETE("/certs/:id", certHandler.Delete)
 		apiGroup.POST("/certs/:id/issue", certHandler.Issue)
 		apiGroup.POST("/certs/:id/renew", certHandler.Renew)

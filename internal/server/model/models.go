@@ -17,8 +17,9 @@ type Certificate struct {
 	Fingerprint   string    `json:"fingerprint"`
 	IssuedAt      time.Time `json:"issued_at"`
 	ExpiresAt     time.Time `json:"expires_at"`
-	DNSProviderID uint      `json:"dns_provider_id"`
-	Status        string    `json:"status" gorm:"default:active"` // active, expired, error
+	ChallengeType string    `json:"challenge_type" gorm:"default:dns-01"` // dns-01, http-01
+	DNSProviderID uint      `json:"dns_provider_id"`                      // DNS-01 时必填
+	Status        string    `json:"status" gorm:"default:active"`         // active, expired, error
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 
@@ -149,6 +150,8 @@ var DefaultSettings = []Setting{
 	{Key: "server.port", Value: "8080", Type: "int", Category: "server", Description: "监听端口"},
 	{Key: "acme.email", Value: "", Type: "string", Category: "acme", Description: "ACME 注册邮箱"},
 	{Key: "acme.ca_url", Value: "https://acme-v02.api.letsencrypt.org/directory", Type: "string", Category: "acme", Description: "CA 地址"},
+	{Key: "acme.challenge_timeout", Value: "300", Type: "int", Category: "acme", Description: "验证超时时间(秒)，DNS 传播通常需要 2-10 分钟"},
+	{Key: "acme.http_port", Value: "80", Type: "int", Category: "acme", Description: "HTTP-01 验证监听端口"},
 	{Key: "scheduler.renew_cron", Value: "0 3 * * *", Type: "string", Category: "scheduler", Description: "续期检查 cron"},
 	{Key: "scheduler.renew_before_days", Value: "30", Type: "int", Category: "scheduler", Description: "提前续期天数"},
 }

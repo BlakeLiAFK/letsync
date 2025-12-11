@@ -20,11 +20,21 @@ func NewCertService() *CertService {
 	}
 }
 
-// CreatePending 创建待申请的证书记录（状态为 pending）
+// CreatePending 创建待申请的证书记录（状态为 pending，默认 DNS-01）
 func (s *CertService) CreatePending(domain string, san []string, dnsProviderID uint) (*model.Certificate, error) {
+	return s.CreatePendingWithChallenge(domain, san, dnsProviderID, "dns-01")
+}
+
+// CreatePendingWithChallenge 创建待申请的证书记录（支持指定验证方式）
+func (s *CertService) CreatePendingWithChallenge(domain string, san []string, dnsProviderID uint, challengeType string) (*model.Certificate, error) {
+	if challengeType == "" {
+		challengeType = "dns-01"
+	}
+
 	cert := &model.Certificate{
 		Domain:        domain,
 		DNSProviderID: dnsProviderID,
+		ChallengeType: challengeType,
 		Status:        "pending",
 	}
 	cert.SetSANList(san)
@@ -34,8 +44,9 @@ func (s *CertService) CreatePending(domain string, san []string, dnsProviderID u
 	}
 
 	s.logger.Info("cert", fmt.Sprintf("添加证书记录: %s", domain), map[string]interface{}{
-		"cert_id": cert.ID,
-		"status":  "pending",
+		"cert_id":        cert.ID,
+		"challenge_type": challengeType,
+		"status":         "pending",
 	})
 
 	return cert, nil
@@ -183,6 +194,48 @@ func (s *CertService) GetStats() map[string]int64 {
 		"expiring_soon": expiring,
 		"expired":      expired,
 	}
+}
+
+// UpdateConfig 更新证书配置（域名、SAN、DNS提供商，默认保持原有验证方式）
+func (s *CertService) UpdateConfig(id uint, domain string, san []string, dnsProviderID uint) error {
+	cert, err := s.Get(id)
+	if err != nil {
+		return err
+	}
+	return s.UpdateConfigWithChallenge(id, domain, san, dnsProviderID, cert.ChallengeType)
+}
+
+// UpdateConfigWithChallenge 更新证书配置（包含验证方式）
+func (s *CertService) UpdateConfigWithChallenge(id uint, domain string, san []string, dnsProviderID uint, challengeType string) error {
+	cert, err := s.Get(id)
+	if err != nil {
+		return err
+	}
+
+	if challengeType == "" {
+		challengeType = "dns-01"
+	}
+
+	updates := map[string]interface{}{
+		"domain":          domain,
+		"dns_provider_id": dnsProviderID,
+		"challenge_type":  challengeType,
+	}
+
+	cert.SetSANList(san)
+	updates["san"] = cert.SAN
+
+	if err := store.GetDB().Model(&model.Certificate{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return err
+	}
+
+	s.logger.Info("cert", fmt.Sprintf("更新证书配置: %s", domain), map[string]interface{}{
+		"cert_id":         id,
+		"challenge_type":  challengeType,
+		"dns_provider_id": dnsProviderID,
+	})
+
+	return nil
 }
 
 // GetAgents 获取使用该证书的 Agent

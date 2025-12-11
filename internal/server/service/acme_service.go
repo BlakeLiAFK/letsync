@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge"
 	"github.com/go-acme/lego/v4/challenge/dns01"
+	"github.com/go-acme/lego/v4/challenge/http01"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/providers/dns/alidns"
 	"github.com/go-acme/lego/v4/providers/dns/cloudflare"
@@ -66,27 +68,35 @@ func NewACMEService(dataDir string) *ACMEService {
 	}
 }
 
-// RequestCertificate 申请证书
+// CertRequest 证书申请请求
+type CertRequest struct {
+	Domain        string
+	SAN           []string
+	ChallengeType string // dns-01 或 http-01
+	DNSProviderID uint   // DNS-01 时必填
+}
+
+// RequestCertificate 申请证书 (兼容旧接口，默认 DNS-01)
 func (s *ACMEService) RequestCertificate(domain string, san []string, dnsProviderID uint) (*certificate.Resource, error) {
-	s.logger.Info("acme", fmt.Sprintf("开始申请证书: %s", domain), map[string]interface{}{
-		"san": san,
+	return s.RequestCertificateWithChallenge(CertRequest{
+		Domain:        domain,
+		SAN:           san,
+		ChallengeType: "dns-01",
+		DNSProviderID: dnsProviderID,
+	})
+}
+
+// RequestCertificateWithChallenge 申请证书（支持多种验证方式）
+func (s *ACMEService) RequestCertificateWithChallenge(req CertRequest) (*certificate.Resource, error) {
+	s.logger.Info("acme", fmt.Sprintf("开始申请证书: %s (验证方式: %s)", req.Domain, req.ChallengeType), map[string]interface{}{
+		"san":            req.SAN,
+		"challenge_type": req.ChallengeType,
 	})
 
-	// 获取 DNS 提供商配置
-	config, err := s.dnsProvider.GetDecryptedConfig(dnsProviderID)
-	if err != nil {
-		return nil, fmt.Errorf("获取 DNS 配置失败: %w", err)
-	}
-
-	provider, err := s.dnsProvider.Get(dnsProviderID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 创建 DNS Provider（需要加锁保护环境变量）
-	dnsProvider, err := s.createDNSProvider(provider.Type, config)
-	if err != nil {
-		return nil, fmt.Errorf("创建 DNS Provider 失败: %w", err)
+	// 获取超时配置 (默认 300 秒 = 5 分钟，DNS 传播通常需要 2-10 分钟)
+	timeout := s.settings.GetInt("acme.challenge_timeout")
+	if timeout <= 0 {
+		timeout = 300
 	}
 
 	// 创建 ACME 客户端
@@ -95,14 +105,52 @@ func (s *ACMEService) RequestCertificate(domain string, san []string, dnsProvide
 		return nil, fmt.Errorf("创建 ACME 客户端失败: %w", err)
 	}
 
-	// 设置 DNS Provider
-	if err := client.Challenge.SetDNS01Provider(dnsProvider, dns01.AddDNSTimeout(120*time.Second)); err != nil {
-		return nil, fmt.Errorf("设置 DNS Provider 失败: %w", err)
+	// 根据验证方式设置 Provider
+	switch req.ChallengeType {
+	case "http-01":
+		// HTTP-01 验证
+		httpPort := s.settings.GetInt("acme.http_port")
+		if httpPort <= 0 {
+			httpPort = 80
+		}
+		// 使用内置 HTTP 服务器
+		httpProvider := http01.NewProviderServer("", fmt.Sprintf("%d", httpPort))
+		if err := client.Challenge.SetHTTP01Provider(httpProvider); err != nil {
+			return nil, fmt.Errorf("设置 HTTP-01 Provider 失败: %w", err)
+		}
+		s.logger.Info("acme", fmt.Sprintf("HTTP-01 验证监听端口: %d", httpPort), nil)
+
+	case "dns-01":
+		fallthrough
+	default:
+		// DNS-01 验证 (默认)
+		if req.DNSProviderID == 0 {
+			return nil, fmt.Errorf("DNS-01 验证需要选择 DNS 提供商")
+		}
+
+		config, err := s.dnsProvider.GetDecryptedConfig(req.DNSProviderID)
+		if err != nil {
+			return nil, fmt.Errorf("获取 DNS 配置失败: %w", err)
+		}
+
+		provider, err := s.dnsProvider.Get(req.DNSProviderID)
+		if err != nil {
+			return nil, err
+		}
+
+		dnsProvider, err := s.createDNSProvider(provider.Type, config)
+		if err != nil {
+			return nil, fmt.Errorf("创建 DNS Provider 失败: %w", err)
+		}
+
+		if err := client.Challenge.SetDNS01Provider(dnsProvider, dns01.AddDNSTimeout(time.Duration(timeout)*time.Second)); err != nil {
+			return nil, fmt.Errorf("设置 DNS Provider 失败: %w", err)
+		}
 	}
 
 	// 构建域名列表
-	domains := []string{domain}
-	domains = append(domains, san...)
+	domains := []string{req.Domain}
+	domains = append(domains, req.SAN...)
 
 	// 申请证书
 	request := certificate.ObtainRequest{
@@ -112,14 +160,54 @@ func (s *ACMEService) RequestCertificate(domain string, san []string, dnsProvide
 
 	certificates, err := client.Certificate.Obtain(request)
 	if err != nil {
-		s.logger.Error("acme", fmt.Sprintf("申请证书失败: %s", domain), map[string]interface{}{
-			"error": err.Error(),
+		s.logger.Error("acme", fmt.Sprintf("申请证书失败: %s", req.Domain), map[string]interface{}{
+			"error":          err.Error(),
+			"challenge_type": req.ChallengeType,
 		})
 		return nil, fmt.Errorf("申请证书失败: %w", err)
 	}
 
-	s.logger.Info("acme", fmt.Sprintf("证书申请成功: %s", domain), nil)
+	s.logger.Info("acme", fmt.Sprintf("证书申请成功: %s", req.Domain), nil)
 	return certificates, nil
+}
+
+// CheckHTTPPort 检查 HTTP 端口是否可用
+func (s *ACMEService) CheckHTTPPort() error {
+	httpPort := s.settings.GetInt("acme.http_port")
+	if httpPort <= 0 {
+		httpPort = 80
+	}
+
+	// 尝试监听端口
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", httpPort))
+	if err != nil {
+		return fmt.Errorf("HTTP-01 验证端口 %d 不可用: %w", httpPort, err)
+	}
+	listener.Close()
+	return nil
+}
+
+// GetHTTPChallengeInfo 获取 HTTP-01 验证信息
+func (s *ACMEService) GetHTTPChallengeInfo() map[string]interface{} {
+	httpPort := s.settings.GetInt("acme.http_port")
+	if httpPort <= 0 {
+		httpPort = 80
+	}
+
+	// 检查端口是否可用
+	available := true
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", httpPort))
+	if err != nil {
+		available = false
+	} else {
+		listener.Close()
+	}
+
+	return map[string]interface{}{
+		"port":      httpPort,
+		"available": available,
+		"note":      "HTTP-01 验证需要域名解析到本服务器，且 80 端口可从公网访问",
+	}
 }
 
 // RenewCertificate 续期证书
@@ -129,10 +217,20 @@ func (s *ACMEService) RenewCertificate(certID uint) error {
 		return err
 	}
 
-	s.logger.Info("acme", fmt.Sprintf("开始续期证书: %s", cert.Domain), nil)
+	s.logger.Info("acme", fmt.Sprintf("开始续期证书: %s (验证方式: %s)", cert.Domain, cert.ChallengeType), nil)
 
-	// 重新申请
-	newCert, err := s.RequestCertificate(cert.Domain, cert.GetSANList(), cert.DNSProviderID)
+	// 使用原证书的验证方式重新申请
+	challengeType := cert.ChallengeType
+	if challengeType == "" {
+		challengeType = "dns-01" // 默认 DNS-01
+	}
+
+	newCert, err := s.RequestCertificateWithChallenge(CertRequest{
+		Domain:        cert.Domain,
+		SAN:           cert.GetSANList(),
+		ChallengeType: challengeType,
+		DNSProviderID: cert.DNSProviderID,
+	})
 	if err != nil {
 		return err
 	}

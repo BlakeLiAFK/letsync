@@ -28,7 +28,9 @@ const acmeSettings = ref({
   acme_email: '',
   acme_directory: 'https://acme-v02.api.letsencrypt.org/directory',
   acme_key_type: 'ec256',
-  renew_days_before: '30'
+  renew_days_before: '30',
+  challenge_timeout: '300',
+  http_port: '80'
 })
 
 // 密码修改
@@ -68,7 +70,9 @@ async function loadSettings() {
         acme_email: data.acme?.email || '',
         acme_directory: data.acme?.ca_url || 'https://acme-v02.api.letsencrypt.org/directory',
         acme_key_type: data.acme?.key_type || 'ec256',
-        renew_days_before: data.scheduler?.renew_before_days || '30'
+        renew_days_before: data.scheduler?.renew_before_days || '30',
+        challenge_timeout: data.acme?.challenge_timeout || '300',
+        http_port: data.acme?.http_port || '80'
       }
     }
   } catch (e: unknown) {
@@ -85,11 +89,14 @@ async function saveSettings() {
   success.value = ''
   try {
     // 转换为后端期望的扁平格式: { "acme.email": "...", "acme.ca_url": "..." }
+    // 注意: 所有值必须是字符串类型，数字输入框的值需要显式转换
     const settings: Record<string, string> = {
       'acme.email': acmeSettings.value.acme_email,
       'acme.ca_url': acmeSettings.value.acme_directory,
       'acme.key_type': acmeSettings.value.acme_key_type,
-      'scheduler.renew_before_days': acmeSettings.value.renew_days_before
+      'scheduler.renew_before_days': String(acmeSettings.value.renew_days_before),
+      'acme.challenge_timeout': String(acmeSettings.value.challenge_timeout),
+      'acme.http_port': String(acmeSettings.value.http_port)
     }
     await settingsApi.update(settings)
     success.value = '保存成功'
@@ -227,6 +234,43 @@ onMounted(loadSettings)
               />
               <label class="label">
                 <span class="label-text-alt">证书到期前多少天自动续期</span>
+              </label>
+            </div>
+
+            <div class="divider">验证配置</div>
+
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text flex items-center gap-2">
+                  <Clock class="w-4 h-4" />
+                  验证超时时间 (秒)
+                </span>
+              </label>
+              <input
+                v-model="acmeSettings.challenge_timeout"
+                type="number"
+                class="input input-bordered w-32"
+                min="60"
+                max="600"
+              />
+              <label class="label">
+                <span class="label-text-alt">DNS 传播通常需要 2-10 分钟，默认 300 秒</span>
+              </label>
+            </div>
+
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">HTTP-01 验证端口</span>
+              </label>
+              <input
+                v-model="acmeSettings.http_port"
+                type="number"
+                class="input input-bordered w-32"
+                min="1"
+                max="65535"
+              />
+              <label class="label">
+                <span class="label-text-alt">HTTP-01 验证监听端口，默认 80</span>
               </label>
             </div>
           </div>

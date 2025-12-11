@@ -25,12 +25,19 @@ const error = ref('')
 
 // DNS 类型选项
 const dnsTypes = [
-  { value: 'cloudflare', label: 'Cloudflare', fields: ['api_key', 'email'], hint: 'Global API Key + Email 方式' },
+  { value: 'cloudflare', label: 'Cloudflare', fields: [], dynamicFields: true },
   { value: 'aliyun', label: '阿里云 DNS', fields: ['access_key_id', 'access_key_secret'] },
   { value: 'dnspod', label: 'DNSPod', fields: ['api_id', 'api_token'] },
   { value: 'route53', label: 'AWS Route53', fields: ['access_key_id', 'secret_access_key', 'region'] },
   { value: 'godaddy', label: 'GoDaddy', fields: ['api_key', 'api_secret'] },
 ]
+
+// Cloudflare 认证方式
+const cfAuthMethods = [
+  { value: 'api_token', label: 'API Token (推荐)', fields: ['api_token'] },
+  { value: 'global_key', label: 'Global API Key + Email', fields: ['api_key', 'email'] },
+]
+const cfAuthMethod = ref('api_token')
 
 // 字段标签映射
 const fieldLabels: Record<string, string> = {
@@ -86,6 +93,11 @@ function getTypeLabel(type: string) {
 }
 
 function getConfigFields(type: string) {
+  // Cloudflare 根据选择的认证方式返回不同字段
+  if (type === 'cloudflare') {
+    const method = cfAuthMethods.find(m => m.value === cfAuthMethod.value)
+    return method?.fields || ['api_token']
+  }
   const t = dnsTypes.find(d => d.value === type)
   return t?.fields || []
 }
@@ -94,6 +106,7 @@ function openCreateModal() {
   isEdit.value = false
   editId.value = null
   form.value = { name: '', type: '', config: {} }
+  cfAuthMethod.value = 'api_token' // 重置为默认认证方式
   formError.value = ''
   showModal.value = true
 }
@@ -119,6 +132,12 @@ async function openEditModal(provider: DnsProvider) {
 
 function onTypeChange() {
   // 切换类型时重置配置
+  form.value.config = {}
+  cfAuthMethod.value = 'api_token' // 重置认证方式
+}
+
+function onCfAuthMethodChange() {
+  // 切换 Cloudflare 认证方式时重置配置
   form.value.config = {}
 }
 
@@ -287,11 +306,33 @@ onMounted(loadData)
           <!-- 动态配置字段 -->
           <template v-if="form.type">
             <div class="divider text-sm">API 配置{{ isEdit ? ' (留空则不修改)' : '' }}</div>
-            <!-- Cloudflare 提示 -->
-            <div v-if="form.type === 'cloudflare'" class="text-sm text-base-content/60 bg-base-200 p-3 rounded-lg mb-3">
-              <p>使用 Cloudflare Global API Key + Email 方式认证</p>
-              <p class="mt-1">Global API Key 可在 Cloudflare 控制台 → My Profile → API Tokens → Global API Key 获取</p>
-            </div>
+
+            <!-- Cloudflare 认证方式选择 -->
+            <template v-if="form.type === 'cloudflare'">
+              <div class="form-control mb-3">
+                <label class="label"><span class="label-text">认证方式</span></label>
+                <select v-model="cfAuthMethod" class="select select-bordered" @change="onCfAuthMethodChange">
+                  <option v-for="m in cfAuthMethods" :key="m.value" :value="m.value">{{ m.label }}</option>
+                </select>
+              </div>
+              <!-- API Token 提示 -->
+              <div v-if="cfAuthMethod === 'api_token'" class="text-sm text-base-content/60 bg-info/10 p-3 rounded-lg mb-3">
+                <p class="font-medium text-info">推荐使用 API Token</p>
+                <p class="mt-1">在 Cloudflare 控制台创建 API Token:</p>
+                <ol class="list-decimal list-inside mt-1 space-y-1">
+                  <li>进入 My Profile → API Tokens → Create Token</li>
+                  <li>选择 "Edit zone DNS" 模板或自定义权限</li>
+                  <li>权限需要: Zone:Read 和 DNS:Edit</li>
+                </ol>
+              </div>
+              <!-- Global API Key 提示 -->
+              <div v-else class="text-sm text-base-content/60 bg-warning/10 p-3 rounded-lg mb-3">
+                <p class="font-medium text-warning">Global API Key 拥有完整账户权限，建议使用 API Token</p>
+                <p class="mt-1">Global API Key 可在:</p>
+                <p>Cloudflare 控制台 → My Profile → API Tokens → Global API Key 获取</p>
+              </div>
+            </template>
+
             <div v-for="field in getConfigFields(form.type)" :key="field" class="form-control">
               <label class="label">
                 <span class="label-text">{{ fieldLabels[field] || field }}{{ isEdit ? '' : ' *' }}</span>
