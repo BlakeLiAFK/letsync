@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { agentsApi } from '@/api'
+import { useToast } from '@/stores/toast'
 import {
   Plus,
   RefreshCw,
@@ -31,6 +32,7 @@ interface Agent {
 }
 
 const route = useRoute()
+const toast = useToast()
 
 const agents = ref<Agent[]>([])
 const loading = ref(true)
@@ -185,7 +187,7 @@ async function copyToClipboard(text: string, type: 'url' | 'command') {
     }, 2000)
   } catch (err) {
     console.error('复制失败:', err)
-    alert('复制失败，请手动复制')
+    toast.error('复制失败，请手动复制')
   }
 }
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { taskLogsApi } from '@/api'
+import { useConfirm } from '@/stores/confirm'
 import {
   X,
   Terminal,
@@ -11,6 +12,8 @@ import {
   Loader2,
   Trash2
 } from 'lucide-vue-next'
+
+const confirmDialog = useConfirm()
 
 interface TaskLog {
   id: number
@@ -170,7 +173,8 @@ async function loadHistoricalLogs() {
 
 // 清空日志
 async function clearLogs() {
-  if (!confirm('确定要清空日志吗？此操作不可恢复。')) {
+  const confirmed = await confirmDialog.danger('确定要清空日志吗？此操作不可恢复。', '清空日志')
+  if (!confirmed) {
     return
   }
 

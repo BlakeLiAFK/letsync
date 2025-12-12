@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { agentsApi, certsApi } from '@/api'
+import { useToast } from '@/stores/toast'
 import {
   ArrowLeft,
   Key,
@@ -57,6 +58,7 @@ interface Cert {
 
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 
 const agent = ref<Agent | null>(null)
 const allCerts = ref<Cert[]>([])
@@ -214,7 +216,7 @@ async function copyToClipboard(text: string, type: 'url' | 'command') {
     }, 2000)
   } catch (err) {
     console.error('复制失败:', err)
-    alert('复制失败，请手动复制')
+    toast.error('复制失败，请手动复制')
   }
 }
 
