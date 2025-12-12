@@ -9,6 +9,7 @@ import {
   Copy,
   Check,
   AlertTriangle,
+  AlertCircle,
   CheckCircle,
   Clock,
   XCircle,
@@ -67,6 +68,10 @@ interface Cert {
   fullchain_pem: string
   fingerprint: string
   cert_info: CertInfo | null
+  // 续期重试相关
+  last_renew_attempt: string | null
+  renew_fail_count: number
+  next_retry_at: string | null
 }
 
 interface DnsProvider {
@@ -433,6 +438,42 @@ onMounted(loadData)
               :value="cert.cert_info.validity_days - cert.cert_info.days_left"
               :max="cert.cert_info.validity_days"
             ></progress>
+          </div>
+        </div>
+      </div>
+
+      <!-- 续期重试状态（仅在有失败记录时显示） -->
+      <div v-if="cert.renew_fail_count > 0 || cert.next_retry_at" class="card bg-base-100 shadow-sm border-l-4 border-warning">
+        <div class="card-body">
+          <h3 class="card-title text-lg mb-4 text-warning">
+            <AlertCircle class="w-5 h-5" />
+            续期重试状态
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="flex items-start gap-3">
+              <Clock class="w-5 h-5 text-base-content/40 mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">上次尝试时间</p>
+                <p class="font-medium">{{ cert.last_renew_attempt ? formatDate(cert.last_renew_attempt) : '-' }}</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <AlertTriangle class="w-5 h-5 text-warning mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">连续失败次数</p>
+                <p class="font-medium text-warning">{{ cert.renew_fail_count }} 次</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <Timer class="w-5 h-5 text-info mt-0.5" />
+              <div>
+                <p class="text-sm text-base-content/60">下次重试时间</p>
+                <p class="font-medium text-info">{{ cert.next_retry_at ? formatDate(cert.next_retry_at) : '待调度' }}</p>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 text-sm text-base-content/60">
+            系统将自动重试续期，重试间隔会逐步增加（10分钟 → 30分钟 → 1小时 → ... → 24小时）
           </div>
         </div>
       </div>

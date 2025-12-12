@@ -7,6 +7,7 @@ import (
 	"github.com/BlakeLiAFK/letsync/internal/pkg/crypto"
 	"github.com/BlakeLiAFK/letsync/internal/server/model"
 	"github.com/BlakeLiAFK/letsync/internal/server/store"
+	"gorm.io/gorm"
 )
 
 // CertService 证书服务
@@ -201,7 +202,7 @@ func (s *CertService) UpdateRenewAttempt(certID uint, t time.Time) {
 // IncrementFailCount 增加失败次数并返回新值
 func (s *CertService) IncrementFailCount(certID uint) int {
 	store.GetDB().Model(&model.Certificate{}).Where("id = ?", certID).
-		UpdateColumn("renew_fail_count", store.GetDB().Raw("renew_fail_count + 1"))
+		UpdateColumn("renew_fail_count", gorm.Expr("renew_fail_count + 1"))
 
 	var cert model.Certificate
 	store.GetDB().Select("renew_fail_count").First(&cert, certID)

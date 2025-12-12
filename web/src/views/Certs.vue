@@ -44,6 +44,9 @@ interface Cert {
     id: number
     name: string
   }
+  // 续期重试相关
+  renew_fail_count?: number
+  next_retry_at?: string | null
 }
 
 interface DnsProvider {
@@ -610,6 +613,11 @@ onMounted(loadData)
                 <div :class="['badge badge-sm gap-1', getStatusBadge(cert.status).class]">
                   <component :is="getStatusBadge(cert.status).icon" class="w-3 h-3" />
                   {{ getStatusBadge(cert.status).text }}
+                </div>
+                <!-- 续期失败标记 -->
+                <div v-if="cert.renew_fail_count && cert.renew_fail_count > 0" class="badge badge-sm badge-warning gap-1" :title="`续期失败 ${cert.renew_fail_count} 次`">
+                  <AlertTriangle class="w-3 h-3" />
+                  重试中
                 </div>
               </div>
               <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-base-content/60">
