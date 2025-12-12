@@ -7,7 +7,9 @@ import {
   ScrollText,
   AlertCircle,
   Info,
-  Bug
+  Bug,
+  Search,
+  X
 } from 'lucide-vue-next'
 
 interface Log {
@@ -15,6 +17,9 @@ interface Log {
   level: string
   module: string
   message: string
+  operator: string
+  direct_ip: string
+  forwarded_ip: string
   created_at: string
 }
 
@@ -26,6 +31,7 @@ const error = ref('')
 const filters = ref({
   level: '',
   module: '',
+  search: '',
   limit: 50,
   offset: 0
 })
@@ -34,6 +40,8 @@ const modules = ['auth', 'cert', 'agent', 'dns', 'scheduler', 'notify', 'acme']
 const levels = ['debug', 'info', 'warn', 'error']
 
 const hasMore = ref(true)
+const searchInput = ref('')
+let searchTimeout: ReturnType<typeof setTimeout> | null = null
 
 async function loadData(reset = false) {
   if (reset) {
@@ -50,6 +58,7 @@ async function loadData(reset = false) {
     }
     if (filters.value.level) params.level = filters.value.level
     if (filters.value.module) params.module = filters.value.module
+    if (filters.value.search) params.search = filters.value.search
 
     const { data } = await logsApi.list(params)
     const newLogs = data || []
@@ -100,6 +109,29 @@ function getLevelInfo(level: string) {
   }
 }
 
+// 防抖搜索
+function onSearchInput() {
+  if (searchTimeout) clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => {
+    filters.value.search = searchInput.value
+    loadData(true)
+  }, 300)
+}
+
+function clearSearch() {
+  searchInput.value = ''
+  filters.value.search = ''
+  loadData(true)
+}
+
+// 格式化 IP 显示
+function formatIP(directIP: string, forwardedIP: string) {
+  if (forwardedIP && forwardedIP !== directIP) {
+    return `${forwardedIP} (via ${directIP})`
+  }
+  return directIP || '-'
+}
+
 watch([() => filters.value.level, () => filters.value.module], () => {
   loadData(true)
 })
@@ -112,6 +144,24 @@ onMounted(() => loadData(true))
     <!-- 工具栏 -->
     <div class="flex flex-col sm:flex-row gap-3 justify-between">
       <div class="flex flex-wrap gap-2">
+        <!-- 搜索框 -->
+        <div class="relative">
+          <input
+            v-model="searchInput"
+            @input="onSearchInput"
+            type="text"
+            class="input input-bordered input-sm w-48 pl-8"
+            placeholder="搜索消息/操作者/IP"
+          />
+          <Search class="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-base-content/40" />
+          <button
+            v-if="searchInput"
+            class="absolute right-2 top-1/2 -translate-y-1/2"
+            @click="clearSearch"
+          >
+            <X class="w-4 h-4 text-base-content/40 hover:text-base-content" />
+          </button>
+        </div>
         <select v-model="filters.level" class="select select-bordered select-sm">
           <option value="">全部级别</option>
           <option v-for="l in levels" :key="l" :value="l">{{ l.toUpperCase() }}</option>
@@ -157,6 +207,8 @@ onMounted(() => loadData(true))
             <tr class="bg-base-200">
               <th class="w-20">级别</th>
               <th class="w-24">模块</th>
+              <th class="w-20">操作者</th>
+              <th class="w-40">IP</th>
               <th class="w-36">时间</th>
               <th>消息</th>
             </tr>
@@ -176,6 +228,14 @@ onMounted(() => loadData(true))
               </td>
               <td>
                 <span class="badge badge-xs badge-ghost">{{ log.module }}</span>
+              </td>
+              <td class="text-xs text-base-content/80">
+                {{ log.operator || '-' }}
+              </td>
+              <td class="text-xs text-base-content/60 whitespace-nowrap" :title="formatIP(log.direct_ip, log.forwarded_ip)">
+                <div class="max-w-40 truncate">
+                  {{ formatIP(log.direct_ip, log.forwarded_ip) }}
+                </div>
               </td>
               <td class="text-xs text-base-content/60 whitespace-nowrap">
                 {{ formatDate(log.created_at) }}

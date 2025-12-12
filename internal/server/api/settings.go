@@ -187,6 +187,7 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 func (h *SettingsHandler) GetLogs(c *gin.Context) {
 	level := c.DefaultQuery("level", "")
 	module := c.DefaultQuery("module", "")
+	search := c.DefaultQuery("search", "")
 	limitStr := c.DefaultQuery("limit", "50")
 	offsetStr := c.DefaultQuery("offset", "0")
 
@@ -201,7 +202,7 @@ func (h *SettingsHandler) GetLogs(c *gin.Context) {
 	}
 
 	logService := service.NewLogService()
-	logs, total, err := logService.Query(level, module, limit, offset)
+	logs, total, err := logService.Query(level, module, search, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{

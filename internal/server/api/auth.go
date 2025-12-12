@@ -125,8 +125,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// 检查是否被锁定
 	if limiter.isLocked(clientIP) {
 		remaining := limiter.getRemainingLockTime(clientIP)
-		h.logger.Warn("auth", "登录被限制", map[string]interface{}{
-			"ip":        clientIP,
+		h.logger.WarnWithContext(c, "auth", "登录被限制", map[string]interface{}{
 			"remaining": remaining.String(),
 		})
 		c.JSON(http.StatusTooManyRequests, gin.H{
@@ -155,9 +154,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if !h.settings.CheckAdminPassword(req.Password) {
 		// 记录失败尝试
 		limiter.recordAttempt(clientIP, false)
-		h.logger.Warn("auth", "登录失败", map[string]interface{}{
-			"ip": clientIP,
-		})
+		h.logger.WarnWithContext(c, "auth", "登录失败", nil)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{
 				"code":    "UNAUTHORIZED",
@@ -169,9 +166,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// 登录成功，清除失败记录
 	limiter.recordAttempt(clientIP, true)
-	h.logger.Info("auth", "登录成功", map[string]interface{}{
-		"ip": clientIP,
-	})
+	h.logger.InfoWithContext(c, "auth", "登录成功", nil)
 
 	token, expiresAt, err := middleware.GenerateToken()
 	if err != nil {
@@ -237,9 +232,7 @@ func (h *AuthHandler) SetupPassword(c *gin.Context) {
 		return
 	}
 
-	h.logger.Info("auth", "首次设置密码", map[string]interface{}{
-		"ip": middleware.GetRealIP(c),
-	})
+	h.logger.InfoWithContext(c, "auth", "首次设置密码", nil)
 
 	// 设置完密码后自动登录
 	token, expiresAt, err := middleware.GenerateToken()
@@ -307,9 +300,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	h.logger.Info("auth", "密码已修改", map[string]interface{}{
-		"ip": middleware.GetRealIP(c),
-	})
+	h.logger.InfoWithContext(c, "auth", "密码已修改", nil)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "密码修改成功",

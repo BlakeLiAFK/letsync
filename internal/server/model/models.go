@@ -125,12 +125,15 @@ type Notification struct {
 
 // Log 操作日志
 type Log struct {
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	Level     string    `json:"level" gorm:"index"` // info, warn, error
-	Module    string    `json:"module" gorm:"index"` // cert, agent, acme, system
-	Message   string    `json:"message"`
-	Metadata  string    `json:"metadata" gorm:"type:text"` // JSON
-	CreatedAt time.Time `json:"created_at" gorm:"index"`
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	Level       string    `json:"level" gorm:"index"`  // info, warn, error
+	Module      string    `json:"module" gorm:"index"` // cert, agent, acme, system
+	Message     string    `json:"message"`
+	Metadata    string    `json:"metadata" gorm:"type:text"` // JSON
+	Operator    string    `json:"operator" gorm:"index"`     // 操作者
+	DirectIP    string    `json:"direct_ip" gorm:"index"`    // 直连 IP
+	ForwardedIP string    `json:"forwarded_ip"`              // X-Forwarded-For IP
+	CreatedAt   time.Time `json:"created_at" gorm:"index"`
 }
 
 // Setting 系统配置
