@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { workspacesApi } from '@/api'
+import { useToast } from '@/stores/toast'
+import { useConfirm } from '@/stores/confirm'
 import {
   Plus,
   RefreshCw,
@@ -32,6 +34,9 @@ interface WorkspacePreset {
   ca_url: string
 }
 
+const toast = useToast()
+const confirm = useConfirm()
+
 const workspaces = ref<Workspace[]>([])
 const presets = ref<WorkspacePreset[]>([])
 const loading = ref(true)
@@ -58,10 +63,6 @@ const form = ref({
 })
 const saving = ref(false)
 const formError = ref('')
-
-// 删除确认
-const deleteId = ref<number | null>(null)
-const deleting = ref(false)
 
 async function loadData() {
   loading.value = true
@@ -170,19 +171,17 @@ async function handleSetDefault(id: number) {
   }
 }
 
-async function handleDelete() {
-  if (!deleteId.value) return
-  deleting.value = true
+async function handleDelete(id: number) {
+  const confirmed = await confirm.danger('确定要删除这个工作区吗？此操作不可恢复。', '删除工作区')
+  if (!confirmed) return
+
   try {
-    await workspacesApi.delete(deleteId.value)
-    deleteId.value = null
+    await workspacesApi.delete(id)
     await loadData()
+    toast.success('删除成功')
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: { message?: string } } } }
-    error.value = err.response?.data?.error?.message || '删除失败'
-    deleteId.value = null
-  } finally {
-    deleting.value = false
+    toast.error(err.response?.data?.error?.message || '删除失败')
   }
 }
 
@@ -291,7 +290,7 @@ onMounted(loadData)
               class="btn btn-ghost btn-sm text-error"
               :disabled="workspace.cert_count > 0"
               :title="workspace.cert_count > 0 ? '有证书关联，无法删除' : ''"
-              @click="deleteId = workspace.id"
+              @click="handleDelete(workspace.id)"
             >
               <Trash2 class="w-4 h-4" />
             </button>
@@ -372,30 +371,6 @@ onMounted(loadData)
           </div>
         </form>
       </div>
-    </dialog>
-
-    <!-- 删除确认 -->
-    <dialog :class="['modal', deleteId !== null && 'modal-open']">
-      <div class="modal-box">
-        <button
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-          @click="deleteId = null"
-        >
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg">确认删除</h3>
-        <p class="py-4">确定要删除这个工作区吗？</p>
-        <div class="modal-action">
-          <button class="btn" @click="deleteId = null">取消</button>
-          <button class="btn btn-error" :disabled="deleting" @click="handleDelete">
-            <span v-if="deleting" class="loading loading-spinner loading-sm"></span>
-            删除
-          </button>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="deleteId = null">close</button>
-      </form>
     </dialog>
   </div>
 </template>
