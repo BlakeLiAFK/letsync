@@ -18,6 +18,7 @@ const router = createRouter({
         { path: 'dashboard', name: 'Dashboard', component: () => import('@/views/Dashboard.vue') },
         { path: 'certs', name: 'Certs', component: () => import('@/views/Certs.vue') },
         { path: 'certs/:id', name: 'CertDetail', component: () => import('@/views/CertDetail.vue') },
+        { path: 'workspaces', name: 'Workspaces', component: () => import('@/views/Workspaces.vue') },
         { path: 'agents', name: 'Agents', component: () => import('@/views/Agents.vue') },
         { path: 'agents/:id', name: 'AgentDetail', component: () => import('@/views/AgentDetail.vue') },
         { path: 'dns-providers', name: 'DnsProviders', component: () => import('@/views/DnsProviders.vue') },

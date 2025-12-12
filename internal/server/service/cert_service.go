@@ -22,11 +22,11 @@ func NewCertService() *CertService {
 
 // CreatePending 创建待申请的证书记录（状态为 pending，默认 DNS-01）
 func (s *CertService) CreatePending(domain string, san []string, dnsProviderID uint) (*model.Certificate, error) {
-	return s.CreatePendingWithChallenge(domain, san, dnsProviderID, "dns-01")
+	return s.CreatePendingWithChallenge(domain, san, dnsProviderID, "dns-01", nil)
 }
 
-// CreatePendingWithChallenge 创建待申请的证书记录（支持指定验证方式）
-func (s *CertService) CreatePendingWithChallenge(domain string, san []string, dnsProviderID uint, challengeType string) (*model.Certificate, error) {
+// CreatePendingWithChallenge 创建待申请的证书记录（支持指定验证方式和工作区）
+func (s *CertService) CreatePendingWithChallenge(domain string, san []string, dnsProviderID uint, challengeType string, workspaceID *uint) (*model.Certificate, error) {
 	if challengeType == "" {
 		challengeType = "dns-01"
 	}
@@ -35,6 +35,7 @@ func (s *CertService) CreatePendingWithChallenge(domain string, san []string, dn
 		Domain:        domain,
 		DNSProviderID: dnsProviderID,
 		ChallengeType: challengeType,
+		WorkspaceID:   workspaceID,
 		Status:        "pending",
 	}
 	cert.SetSANList(san)
@@ -46,6 +47,7 @@ func (s *CertService) CreatePendingWithChallenge(domain string, san []string, dn
 	s.logger.Info("cert", fmt.Sprintf("添加证书记录: %s", domain), map[string]interface{}{
 		"cert_id":        cert.ID,
 		"challenge_type": challengeType,
+		"workspace_id":   workspaceID,
 		"status":         "pending",
 	})
 
@@ -89,7 +91,7 @@ func (s *CertService) Create(domain string, san []string, dnsProviderID uint, ce
 // Get 获取证书
 func (s *CertService) Get(id uint) (*model.Certificate, error) {
 	var cert model.Certificate
-	if err := store.GetDB().Preload("DNSProvider").First(&cert, id).Error; err != nil {
+	if err := store.GetDB().Preload("DNSProvider").Preload("Workspace").First(&cert, id).Error; err != nil {
 		return nil, err
 	}
 	return &cert, nil
@@ -98,7 +100,7 @@ func (s *CertService) Get(id uint) (*model.Certificate, error) {
 // List 获取所有证书
 func (s *CertService) List() ([]model.Certificate, error) {
 	var certs []model.Certificate
-	if err := store.GetDB().Preload("DNSProvider").Find(&certs).Error; err != nil {
+	if err := store.GetDB().Preload("DNSProvider").Preload("Workspace").Find(&certs).Error; err != nil {
 		return nil, err
 	}
 
@@ -166,6 +168,7 @@ func (s *CertService) GetExpiringCerts(days int) ([]model.Certificate, error) {
 	if err := store.GetDB().
 		Where("expires_at <= ? AND status = ?", threshold, "active").
 		Preload("DNSProvider").
+		Preload("Workspace").
 		Find(&certs).Error; err != nil {
 		return nil, err
 	}
@@ -196,17 +199,17 @@ func (s *CertService) GetStats() map[string]int64 {
 	}
 }
 
-// UpdateConfig 更新证书配置（域名、SAN、DNS提供商，默认保持原有验证方式）
+// UpdateConfig 更新证书配置（域名、SAN、DNS提供商，默认保持原有验证方式和工作区）
 func (s *CertService) UpdateConfig(id uint, domain string, san []string, dnsProviderID uint) error {
 	cert, err := s.Get(id)
 	if err != nil {
 		return err
 	}
-	return s.UpdateConfigWithChallenge(id, domain, san, dnsProviderID, cert.ChallengeType)
+	return s.UpdateConfigWithChallenge(id, domain, san, dnsProviderID, cert.ChallengeType, cert.WorkspaceID)
 }
 
-// UpdateConfigWithChallenge 更新证书配置（包含验证方式）
-func (s *CertService) UpdateConfigWithChallenge(id uint, domain string, san []string, dnsProviderID uint, challengeType string) error {
+// UpdateConfigWithChallenge 更新证书配置（包含验证方式和工作区）
+func (s *CertService) UpdateConfigWithChallenge(id uint, domain string, san []string, dnsProviderID uint, challengeType string, workspaceID *uint) error {
 	cert, err := s.Get(id)
 	if err != nil {
 		return err
@@ -220,6 +223,7 @@ func (s *CertService) UpdateConfigWithChallenge(id uint, domain string, san []st
 		"domain":          domain,
 		"dns_provider_id": dnsProviderID,
 		"challenge_type":  challengeType,
+		"workspace_id":    workspaceID,
 	}
 
 	cert.SetSANList(san)
@@ -233,6 +237,7 @@ func (s *CertService) UpdateConfigWithChallenge(id uint, domain string, san []st
 		"cert_id":         id,
 		"challenge_type":  challengeType,
 		"dns_provider_id": dnsProviderID,
+		"workspace_id":    workspaceID,
 	})
 
 	return nil

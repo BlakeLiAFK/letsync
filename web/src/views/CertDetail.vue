@@ -25,7 +25,8 @@ import {
   ChevronDown,
   Eye,
   EyeOff,
-  Server
+  Server,
+  Layers
 } from 'lucide-vue-next'
 import TaskLogModal from '@/components/TaskLogModal.vue'
 
@@ -58,6 +59,8 @@ interface Cert {
   created_at: string
   updated_at: string
   dns_provider_id: number
+  workspace_id: number | null
+  workspace: Workspace | null
   cert_pem: string
   key_pem: string
   ca_pem: string
@@ -70,6 +73,11 @@ interface DnsProvider {
   id: number
   name: string
   type: string
+}
+
+interface Workspace {
+  id: number
+  name: string
 }
 
 const route = useRoute()
@@ -252,6 +260,14 @@ onMounted(loadData)
                   <div v-if="dnsProvider" class="badge badge-outline gap-1">
                     <Globe class="w-3 h-3" />
                     {{ dnsProvider.name }}
+                  </div>
+                  <div v-if="cert.workspace" class="badge badge-outline gap-1">
+                    <Layers class="w-3 h-3" />
+                    {{ cert.workspace.name }}
+                  </div>
+                  <div v-else class="badge badge-ghost gap-1">
+                    <Layers class="w-3 h-3" />
+                    全局配置
                   </div>
                 </div>
               </div>

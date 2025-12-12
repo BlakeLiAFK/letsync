@@ -31,6 +31,7 @@ func InitDB(dataDir string) error {
 
 	// 自动迁移
 	err = db.AutoMigrate(
+		&model.Workspace{},
 		&model.Certificate{},
 		&model.DNSProvider{},
 		&model.Agent{},

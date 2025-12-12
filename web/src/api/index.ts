@@ -47,9 +47,9 @@ export const certsApi = {
   list: () => api.get('/certs'),
   stats: () => api.get('/certs/stats'),
   get: (id: number) => api.get(`/certs/${id}`),
-  create: (data: { domain: string; san: string[]; challenge_type?: string; dns_provider_id: number }) =>
+  create: (data: { domain: string; san: string[]; challenge_type?: string; dns_provider_id: number; workspace_id?: number | null }) =>
     api.post('/certs', data),
-  update: (id: number, data: { domain: string; san: string[]; challenge_type?: string; dns_provider_id: number }) =>
+  update: (id: number, data: { domain: string; san: string[]; challenge_type?: string; dns_provider_id: number; workspace_id?: number | null }) =>
     api.put(`/certs/${id}`, data),
   delete: (id: number) => api.delete(`/certs/${id}`),
   issue: (id: number) => api.post(`/certs/${id}/issue`),
@@ -114,6 +114,19 @@ export const settingsApi = {
 export const logsApi = {
   list: (params: { level?: string; module?: string; limit?: number; offset?: number }) =>
     api.get('/logs', { params }),
+}
+
+// 工作区 API
+export const workspacesApi = {
+  list: () => api.get('/workspaces'),
+  presets: () => api.get('/workspaces/presets'),
+  get: (id: number) => api.get(`/workspaces/${id}`),
+  create: (data: { name: string; description?: string; ca_url: string; email: string; key_type?: string }) =>
+    api.post('/workspaces', data),
+  update: (id: number, data: { name: string; description?: string; ca_url: string; email: string; key_type?: string }) =>
+    api.put(`/workspaces/${id}`, data),
+  delete: (id: number) => api.delete(`/workspaces/${id}`),
+  setDefault: (id: number) => api.post(`/workspaces/${id}/default`),
 }
 
 // 任务日志 API

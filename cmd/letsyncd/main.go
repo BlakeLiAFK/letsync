@@ -12,7 +12,7 @@ import (
 
 	"github.com/BlakeLiAFK/letsync"
 	"github.com/BlakeLiAFK/letsync/internal/server/api"
-	"github.com/BlakeLiAFK/letsync/internal/server/middleware"
+	"github.com/BlakeLiAFK/letsync/internal/server/middleware" //nolint:all
 	"github.com/BlakeLiAFK/letsync/internal/server/scheduler"
 	"github.com/BlakeLiAFK/letsync/internal/server/service"
 	"github.com/BlakeLiAFK/letsync/internal/server/store"
@@ -28,6 +28,7 @@ func main() {
 	// 解析命令行参数
 	dataDir := flag.String("d", "./data", "数据目录路径")
 	port := flag.Int("p", 0, "临时指定端口 (仅首次启动)")
+	addrF := flag.String("a", "0.0.0.0", "临时指定地址 (仅首次启动)")
 	version := flag.Bool("v", false, "显示版本信息")
 	flag.Parse()
 
@@ -51,7 +52,7 @@ func main() {
 	// 获取服务器配置
 	host := settings.Get("server.host")
 	if host == "" {
-		host = "0.0.0.0"
+		host = *addrF
 	}
 
 	serverPort := settings.GetInt("server.port")
@@ -71,7 +72,7 @@ func main() {
 	r.RedirectFixedPath = false     // 禁用路径修复重定向
 	r.Use(gin.Recovery())
 	r.Use(middleware.SecurityHeaders()) // 安全响应头
-	r.Use(middleware.CORS())           // CORS 跨域
+	r.Use(middleware.CORS())            // CORS 跨域
 
 	// 初始化 handlers
 	authHandler := api.NewAuthHandler()
@@ -82,6 +83,7 @@ func main() {
 	notifyHandler := api.NewNotificationHandler()
 	settingsHandler := api.NewSettingsHandler()
 	taskLogHandler := api.NewTaskLogHandler()
+	workspaceHandler := api.NewWorkspaceHandler()
 
 	// 公开接口
 	r.GET("/api/auth/status", authHandler.Status)
@@ -162,6 +164,15 @@ func main() {
 
 		// 日志
 		apiGroup.GET("/logs", settingsHandler.GetLogs)
+
+		// 工作区
+		apiGroup.GET("/workspaces", workspaceHandler.List)
+		apiGroup.GET("/workspaces/presets", workspaceHandler.GetPresets)
+		apiGroup.POST("/workspaces", workspaceHandler.Create)
+		apiGroup.GET("/workspaces/:id", workspaceHandler.Get)
+		apiGroup.PUT("/workspaces/:id", workspaceHandler.Update)
+		apiGroup.DELETE("/workspaces/:id", workspaceHandler.Delete)
+		apiGroup.POST("/workspaces/:id/default", workspaceHandler.SetDefault)
 	}
 
 	// 静态文件服务 (嵌入的前端)

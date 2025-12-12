@@ -58,6 +58,7 @@ func (h *CertHandler) List(c *gin.Context) {
 			"issued_at":      cert.IssuedAt,
 			"expires_at":     cert.ExpiresAt,
 			"challenge_type": challengeType,
+			"workspace_id":   cert.WorkspaceID,
 			"status":         cert.Status,
 		}
 
@@ -65,6 +66,13 @@ func (h *CertHandler) List(c *gin.Context) {
 			item["dns_provider"] = gin.H{
 				"id":   cert.DNSProvider.ID,
 				"name": cert.DNSProvider.Name,
+			}
+		}
+
+		if cert.Workspace != nil {
+			item["workspace"] = gin.H{
+				"id":   cert.Workspace.ID,
+				"name": cert.Workspace.Name,
 			}
 		}
 
@@ -109,6 +117,18 @@ func (h *CertHandler) Get(c *gin.Context) {
 	// 解析证书获取详细信息
 	certInfo := h.parseCertificateInfo(cert.CertPEM)
 
+	// 构建工作区信息
+	var workspaceInfo gin.H
+	if cert.Workspace != nil {
+		workspaceInfo = gin.H{
+			"id":       cert.Workspace.ID,
+			"name":     cert.Workspace.Name,
+			"ca_url":   cert.Workspace.CaURL,
+			"email":    cert.Workspace.Email,
+			"key_type": cert.Workspace.KeyType,
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"id":              cert.ID,
 		"domain":          cert.Domain,
@@ -122,6 +142,8 @@ func (h *CertHandler) Get(c *gin.Context) {
 		"expires_at":      cert.ExpiresAt,
 		"challenge_type":  challengeType,
 		"dns_provider_id": cert.DNSProviderID,
+		"workspace_id":    cert.WorkspaceID,
+		"workspace":       workspaceInfo,
 		"status":          cert.Status,
 		"agents":          agents,
 		"created_at":      cert.CreatedAt,
@@ -220,8 +242,9 @@ func (h *CertHandler) Create(c *gin.Context) {
 	var req struct {
 		Domain        string   `json:"domain" binding:"required"`
 		SAN           []string `json:"san"`
-		ChallengeType string   `json:"challenge_type"` // dns-01 或 http-01，默认 dns-01
+		ChallengeType string   `json:"challenge_type"`  // dns-01 或 http-01，默认 dns-01
 		DNSProviderID uint     `json:"dns_provider_id"` // DNS-01 时必填
+		WorkspaceID   *uint    `json:"workspace_id"`    // 工作区 ID，为空则使用全局配置
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -252,7 +275,7 @@ func (h *CertHandler) Create(c *gin.Context) {
 	}
 
 	// 先创建证书记录，状态为 pending
-	cert, err := h.certService.CreatePendingWithChallenge(req.Domain, req.SAN, req.DNSProviderID, challengeType)
+	cert, err := h.certService.CreatePendingWithChallenge(req.Domain, req.SAN, req.DNSProviderID, challengeType, req.WorkspaceID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
@@ -267,6 +290,7 @@ func (h *CertHandler) Create(c *gin.Context) {
 		"id":             cert.ID,
 		"domain":         cert.Domain,
 		"challenge_type": cert.ChallengeType,
+		"workspace_id":   cert.WorkspaceID,
 		"status":         cert.Status,
 	})
 }
@@ -336,6 +360,7 @@ func (h *CertHandler) issueCertificateAsync(certID uint, taskID string, cert *mo
 		SAN:           cert.GetSANList(),
 		ChallengeType: challengeType,
 		DNSProviderID: cert.DNSProviderID,
+		WorkspaceID:   cert.WorkspaceID,
 		CertID:        certID,
 		TaskType:      "issue",
 	})
@@ -395,8 +420,9 @@ func (h *CertHandler) Edit(c *gin.Context) {
 	var req struct {
 		Domain        string   `json:"domain" binding:"required"`
 		SAN           []string `json:"san"`
-		ChallengeType string   `json:"challenge_type"` // dns-01 或 http-01
+		ChallengeType string   `json:"challenge_type"`  // dns-01 或 http-01
 		DNSProviderID uint     `json:"dns_provider_id"` // DNS-01 时必填
+		WorkspaceID   *uint    `json:"workspace_id"`    // 工作区 ID，为空则使用全局配置
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -426,7 +452,7 @@ func (h *CertHandler) Edit(c *gin.Context) {
 		return
 	}
 
-	if err := h.certService.UpdateConfigWithChallenge(uint(id), req.Domain, req.SAN, req.DNSProviderID, challengeType); err != nil {
+	if err := h.certService.UpdateConfigWithChallenge(uint(id), req.Domain, req.SAN, req.DNSProviderID, challengeType, req.WorkspaceID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
 				"code":    "INTERNAL_ERROR",
@@ -442,6 +468,7 @@ func (h *CertHandler) Edit(c *gin.Context) {
 		"domain":         cert.Domain,
 		"san":            cert.GetSANList(),
 		"challenge_type": cert.ChallengeType,
+		"workspace_id":   cert.WorkspaceID,
 		"status":         cert.Status,
 	})
 }

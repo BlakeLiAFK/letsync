@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { certsApi, dnsProvidersApi } from '@/api'
+import { certsApi, dnsProvidersApi, workspacesApi } from '@/api'
 import {
   Plus,
   RefreshCw,
@@ -33,7 +33,12 @@ interface Cert {
   challenge_type: string
   expires_at: string
   created_at: string
+  workspace_id?: number | null
   dns_provider?: {
+    id: number
+    name: string
+  }
+  workspace?: {
     id: number
     name: string
   }
@@ -45,10 +50,18 @@ interface DnsProvider {
   type: string
 }
 
+interface Workspace {
+  id: number
+  name: string
+  ca_url: string
+  is_default: boolean
+}
+
 const route = useRoute()
 
 const certs = ref<Cert[]>([])
 const dnsProviders = ref<DnsProvider[]>([])
+const workspaces = ref<Workspace[]>([])
 const loading = ref(true)
 const error = ref('')
 
@@ -79,7 +92,8 @@ const createForm = ref({
   domain: '',
   san: '',
   challenge_type: 'dns-01',
-  dns_provider_id: 0
+  dns_provider_id: 0,
+  workspace_id: null as number | null
 })
 const creating = ref(false)
 const createError = ref('')
@@ -91,7 +105,8 @@ const editForm = ref({
   domain: '',
   san: '',
   challenge_type: 'dns-01',
-  dns_provider_id: 0
+  dns_provider_id: 0,
+  workspace_id: null as number | null
 })
 const editing = ref(false)
 const editError = ref('')
@@ -113,12 +128,14 @@ async function loadData() {
   loading.value = true
   error.value = ''
   try {
-    const [certRes, dnsRes] = await Promise.all([
+    const [certRes, dnsRes, wsRes] = await Promise.all([
       certsApi.list(),
-      dnsProvidersApi.list()
+      dnsProvidersApi.list(),
+      workspacesApi.list()
     ])
     certs.value = certRes.data || []
     dnsProviders.value = dnsRes.data || []
+    workspaces.value = wsRes.data || []
   } catch (e: unknown) {
     const err = e as { message?: string }
     error.value = err.message || '加载失败'
@@ -176,10 +193,11 @@ async function handleCreate() {
       domain: createForm.value.domain,
       san,
       challenge_type: createForm.value.challenge_type,
-      dns_provider_id: createForm.value.challenge_type === 'dns-01' ? createForm.value.dns_provider_id : 0
+      dns_provider_id: createForm.value.challenge_type === 'dns-01' ? createForm.value.dns_provider_id : 0,
+      workspace_id: createForm.value.workspace_id
     })
     showCreateModal.value = false
-    createForm.value = { domain: '', san: '', challenge_type: 'dns-01', dns_provider_id: 0 }
+    createForm.value = { domain: '', san: '', challenge_type: 'dns-01', dns_provider_id: 0, workspace_id: null }
     await loadData()
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: { message?: string } } } }
@@ -249,7 +267,8 @@ function openEditModal(cert: Cert) {
     domain: cert.domain,
     san: cert.san ? cert.san.join(', ') : '',
     challenge_type: cert.challenge_type || 'dns-01',
-    dns_provider_id: cert.dns_provider?.id || 0
+    dns_provider_id: cert.dns_provider?.id || 0,
+    workspace_id: cert.workspace_id ?? null
   }
   editError.value = ''
   showEditModal.value = true
@@ -277,7 +296,8 @@ async function handleEdit() {
       domain: editForm.value.domain,
       san,
       challenge_type: editForm.value.challenge_type,
-      dns_provider_id: editForm.value.challenge_type === 'dns-01' ? editForm.value.dns_provider_id : 0
+      dns_provider_id: editForm.value.challenge_type === 'dns-01' ? editForm.value.dns_provider_id : 0,
+      workspace_id: editForm.value.workspace_id
     })
     showEditModal.value = false
     await loadData()
@@ -602,6 +622,7 @@ onMounted(loadData)
                   {{ cert.challenge_type === 'http-01' ? 'HTTP-01' : 'DNS-01' }}
                 </span>
                 <span v-if="cert.challenge_type !== 'http-01'">DNS: {{ getDnsProviderName(cert) }}</span>
+                <span v-if="cert.workspace" class="badge badge-xs badge-ghost">{{ cert.workspace.name }}</span>
                 <span v-if="cert.expires_at">过期: {{ formatDate(cert.expires_at) }}</span>
               </div>
             </div>
@@ -754,6 +775,19 @@ onMounted(loadData)
             </select>
           </div>
 
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">工作区</span>
+              <span class="label-text-alt">可选，不选则使用全局配置</span>
+            </label>
+            <select v-model="createForm.workspace_id" class="select select-bordered">
+              <option :value="null">使用全局配置</option>
+              <option v-for="ws in workspaces" :key="ws.id" :value="ws.id">
+                {{ ws.name }}{{ ws.is_default ? ' (默认)' : '' }}
+              </option>
+            </select>
+          </div>
+
           <div v-if="createForm.challenge_type === 'http-01'" class="text-sm text-warning bg-warning/10 p-3 rounded-lg">
             <p class="font-medium mb-1">HTTP-01 验证注意事项：</p>
             <ul class="list-disc list-inside space-y-1 text-base-content/70">
@@ -855,6 +889,19 @@ onMounted(loadData)
               <option :value="0" disabled>请选择</option>
               <option v-for="p in dnsProviders" :key="p.id" :value="p.id">
                 {{ p.name }} ({{ p.type }})
+              </option>
+            </select>
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">工作区</span>
+              <span class="label-text-alt">可选，不选则使用全局配置</span>
+            </label>
+            <select v-model="editForm.workspace_id" class="select select-bordered">
+              <option :value="null">使用全局配置</option>
+              <option v-for="ws in workspaces" :key="ws.id" :value="ws.id">
+                {{ ws.name }}{{ ws.is_default ? ' (默认)' : '' }}
               </option>
             </select>
           </div>

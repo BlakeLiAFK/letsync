@@ -5,6 +5,37 @@ import (
 	"time"
 )
 
+// Workspace ACME 工作区
+type Workspace struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	Name        string    `json:"name" gorm:"uniqueIndex;not null"` // 工作区名称
+	Description string    `json:"description"`                      // 描述
+	CaURL       string    `json:"ca_url" gorm:"not null"`           // ACME 目录 URL
+	Email       string    `json:"email" gorm:"not null"`            // 注册邮箱
+	KeyType     string    `json:"key_type" gorm:"default:EC256"`    // 密钥类型
+	AccountKey  []byte    `json:"-" gorm:"type:blob"`               // ACME 账号私钥（加密存储）
+	IsDefault   bool      `json:"is_default" gorm:"default:false"`  // 是否默认工作区
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// WorkspacePreset 工作区预设模板
+type WorkspacePreset struct {
+	Name  string `json:"name"`
+	CaURL string `json:"ca_url"`
+}
+
+// GetWorkspacePresets 返回预设工作区列表
+func GetWorkspacePresets() []WorkspacePreset {
+	return []WorkspacePreset{
+		{Name: "Let's Encrypt", CaURL: "https://acme-v02.api.letsencrypt.org/directory"},
+		{Name: "Let's Encrypt (Staging)", CaURL: "https://acme-staging-v02.api.letsencrypt.org/directory"},
+		{Name: "ZeroSSL", CaURL: "https://acme.zerossl.com/v2/DV90"},
+		{Name: "Buypass", CaURL: "https://api.buypass.com/acme/directory"},
+		{Name: "Google Trust Services", CaURL: "https://dv.acme-v02.api.pki.goog/directory"},
+	}
+}
+
 // Certificate 证书表
 type Certificate struct {
 	ID            uint      `json:"id" gorm:"primaryKey"`
@@ -19,12 +50,14 @@ type Certificate struct {
 	ExpiresAt     time.Time `json:"expires_at"`
 	ChallengeType string    `json:"challenge_type" gorm:"default:dns-01"` // dns-01, http-01
 	DNSProviderID uint      `json:"dns_provider_id"`                      // DNS-01 时必填
+	WorkspaceID   *uint     `json:"workspace_id"`                         // 工作区 ID，为空则用全局配置
 	Status        string    `json:"status" gorm:"default:active"`         // active, expired, error
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 
 	// 关联
 	DNSProvider *DNSProvider `json:"dns_provider,omitempty" gorm:"foreignKey:DNSProviderID"`
+	Workspace   *Workspace   `json:"workspace,omitempty" gorm:"foreignKey:WorkspaceID"`
 }
 
 // GetSANList 获取 SAN 列表

@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import {
   LayoutDashboard,
   FileKey,
+  Layers,
   Server,
   Globe,
   Bell,
@@ -25,6 +26,7 @@ const sidebarOpen = ref(false)
 const navItems = [
   { path: '/dashboard', name: '仪表盘', icon: LayoutDashboard },
   { path: '/certs', name: '证书管理', icon: FileKey },
+  { path: '/workspaces', name: '工作区', icon: Layers },
   { path: '/agents', name: 'Agent 管理', icon: Server },
   { path: '/dns-providers', name: 'DNS 提供商', icon: Globe },
   { path: '/notifications', name: '通知渠道', icon: Bell },
