@@ -55,6 +55,11 @@ type Certificate struct {
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 
+	// 续期重试相关
+	LastRenewAttempt *time.Time `json:"last_renew_attempt"` // 上次续期尝试时间
+	RenewFailCount   int        `json:"renew_fail_count"`   // 连续失败次数
+	NextRetryAt      *time.Time `json:"next_retry_at"`      // 下次重试时间
+
 	// 关联
 	DNSProvider *DNSProvider `json:"dns_provider,omitempty" gorm:"foreignKey:DNSProviderID"`
 	Workspace   *Workspace   `json:"workspace,omitempty" gorm:"foreignKey:WorkspaceID"`

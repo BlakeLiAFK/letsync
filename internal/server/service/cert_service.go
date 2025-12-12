@@ -160,13 +160,13 @@ func (s *CertService) Update(id uint, certPEM, keyPEM, caPEM, fullchainPEM []byt
 	return nil
 }
 
-// GetExpiringCerts 获取即将过期的证书
+// GetExpiringCerts 获取即将过期的证书（排除已有重试计划的）
 func (s *CertService) GetExpiringCerts(days int) ([]model.Certificate, error) {
 	threshold := time.Now().Add(time.Duration(days) * 24 * time.Hour)
 
 	var certs []model.Certificate
 	if err := store.GetDB().
-		Where("expires_at <= ? AND status = ?", threshold, "active").
+		Where("expires_at <= ? AND status = ? AND (next_retry_at IS NULL OR renew_fail_count = 0)", threshold, "valid").
 		Preload("DNSProvider").
 		Preload("Workspace").
 		Find(&certs).Error; err != nil {
@@ -176,26 +176,75 @@ func (s *CertService) GetExpiringCerts(days int) ([]model.Certificate, error) {
 	return certs, nil
 }
 
+// GetCertsNeedRetry 获取需要重试的证书
+func (s *CertService) GetCertsNeedRetry() ([]model.Certificate, error) {
+	now := time.Now()
+
+	var certs []model.Certificate
+	if err := store.GetDB().
+		Where("next_retry_at IS NOT NULL AND next_retry_at <= ? AND status = ?", now, "valid").
+		Preload("DNSProvider").
+		Preload("Workspace").
+		Find(&certs).Error; err != nil {
+		return nil, err
+	}
+
+	return certs, nil
+}
+
+// UpdateRenewAttempt 更新续期尝试时间
+func (s *CertService) UpdateRenewAttempt(certID uint, t time.Time) {
+	store.GetDB().Model(&model.Certificate{}).Where("id = ?", certID).
+		Update("last_renew_attempt", t)
+}
+
+// IncrementFailCount 增加失败次数并返回新值
+func (s *CertService) IncrementFailCount(certID uint) int {
+	store.GetDB().Model(&model.Certificate{}).Where("id = ?", certID).
+		UpdateColumn("renew_fail_count", store.GetDB().Raw("renew_fail_count + 1"))
+
+	var cert model.Certificate
+	store.GetDB().Select("renew_fail_count").First(&cert, certID)
+	return cert.RenewFailCount
+}
+
+// SetNextRetry 设置下次重试时间
+func (s *CertService) SetNextRetry(certID uint, t time.Time) {
+	store.GetDB().Model(&model.Certificate{}).Where("id = ?", certID).
+		Update("next_retry_at", t)
+}
+
+// ResetRetryState 重置重试状态（续期成功后调用）
+func (s *CertService) ResetRetryState(certID uint) {
+	store.GetDB().Model(&model.Certificate{}).Where("id = ?", certID).
+		Updates(map[string]interface{}{
+			"renew_fail_count": 0,
+			"next_retry_at":    nil,
+		})
+}
+
 // GetStats 获取证书统计
 func (s *CertService) GetStats() map[string]int64 {
-	var total, expired, expiring, valid int64
+	var total, expired, expiring, valid, pending int64
 
 	store.GetDB().Model(&model.Certificate{}).Count(&total)
 	store.GetDB().Model(&model.Certificate{}).Where("status = ?", "expired").Count(&expired)
+	store.GetDB().Model(&model.Certificate{}).Where("status = ?", "pending").Count(&pending)
 
 	// 30 天内到期
 	threshold := time.Now().Add(30 * 24 * time.Hour)
 	store.GetDB().Model(&model.Certificate{}).
-		Where("expires_at <= ? AND status = ?", threshold, "active").
+		Where("expires_at <= ? AND status = ?", threshold, "valid").
 		Count(&expiring)
 
-	valid = total - expired - expiring
+	valid = total - expired - expiring - pending
 
 	return map[string]int64{
-		"total":        total,
-		"valid":        valid,
+		"total":         total,
+		"valid":         valid,
 		"expiring_soon": expiring,
-		"expired":      expired,
+		"expired":       expired,
+		"pending":       pending,
 	}
 }
 
