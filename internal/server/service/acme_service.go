@@ -5,7 +5,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -77,6 +79,7 @@ type CertRequest struct {
 	SAN           []string
 	ChallengeType string // dns-01 或 http-01
 	DNSProviderID uint   // DNS-01 时必填
+	WorkspaceID   *uint  // 工作区 ID，为空则用全局配置
 	CertID        uint   // 证书ID，用于记录任务日志
 	TaskType      string // 任务类型: issue 或 renew，用于日志记录
 }
@@ -121,7 +124,7 @@ func (s *ACMEService) RequestCertificateWithChallenge(req CertRequest) (*certifi
 	if req.CertID > 0 {
 		s.taskLog.Info(req.CertID, taskType, "正在创建 ACME 客户端...", nil)
 	}
-	client, err := s.createACMEClient()
+	client, err := s.createACMEClientWithWorkspace(req.WorkspaceID)
 	if err != nil {
 		if req.CertID > 0 {
 			s.taskLog.Error(req.CertID, taskType, fmt.Sprintf("创建 ACME 客户端失败: %v", err), nil)
@@ -191,6 +194,13 @@ func (s *ACMEService) RequestCertificateWithChallenge(req CertRequest) (*certifi
 			return nil, fmt.Errorf("获取 DNS 配置失败: %w", err)
 		}
 
+		// 申请前清理旧的 ACME challenge 记录（避免 "记录已存在" 错误）
+		cleanupDomains := []string{req.Domain}
+		cleanupDomains = append(cleanupDomains, req.SAN...)
+		if err := s.cleanupACMEChallengeRecords(cleanupDomains, provider.Type, config); err != nil {
+			s.logger.Warn("acme", fmt.Sprintf("清理旧 ACME challenge 记录失败: %v", err), nil)
+		}
+
 		dnsProvider, err := s.createDNSProvider(provider.Type, config)
 		if err != nil {
 			if req.CertID > 0 {
@@ -199,8 +209,21 @@ func (s *ACMEService) RequestCertificateWithChallenge(req CertRequest) (*certifi
 			return nil, fmt.Errorf("创建 DNS Provider 失败: %w", err)
 		}
 
-		// 使用公共 DNS 服务器验证 DNS 传播，避免本地 DNS 超时问题
-		publicDNS := []string{"8.8.8.8:53", "1.1.1.1:53", "223.5.5.5:53"}
+		// 根据 DNS 提供商选择最优的公共 DNS 服务器顺序
+		var publicDNS []string
+		switch provider.Type {
+		case "cloudflare":
+			// Cloudflare 优先使用自家 DNS
+			publicDNS = []string{"1.1.1.1:53", "8.8.8.8:53", "223.5.5.5:53"}
+		case "aliyun":
+			// 阿里云优先使用阿里 DNS
+			publicDNS = []string{"223.5.5.5:53", "223.6.6.6:53", "8.8.8.8:53"}
+		case "dnspod":
+			// DNSPod/腾讯云优先使用腾讯 DNS
+			publicDNS = []string{"119.29.29.29:53", "223.5.5.5:53", "8.8.8.8:53"}
+		default:
+			publicDNS = []string{"8.8.8.8:53", "1.1.1.1:53", "223.5.5.5:53"}
+		}
 		if err := client.Challenge.SetDNS01Provider(
 			dnsProvider,
 			dns01.AddDNSTimeout(time.Duration(timeout)*time.Second),
@@ -412,8 +435,9 @@ func (s *ACMEService) RenewCertificateWithTaskID(certID uint, taskID string) (st
 		SAN:           cert.GetSANList(),
 		ChallengeType: challengeType,
 		DNSProviderID: cert.DNSProviderID,
-		CertID:        certID,   // 传入 certID 用于日志记录
-		TaskType:      "renew",  // 续期任务
+		WorkspaceID:   cert.WorkspaceID, // 传入工作区 ID
+		CertID:        certID,           // 传入 certID 用于日志记录
+		TaskType:      "renew",          // 续期任务
 	})
 	if err != nil {
 		s.taskLog.ErrorWithTaskID(taskID, certID, "renew", fmt.Sprintf("续期证书失败: %v", err), nil)
@@ -467,20 +491,42 @@ func (s *ACMEService) RenewCertificateWithTaskID(certID uint, taskID string) (st
 	return taskID, nil
 }
 
-// createACMEClient 创建 ACME 客户端
+// createACMEClient 创建 ACME 客户端（使用全局配置）
 func (s *ACMEService) createACMEClient() (*lego.Client, error) {
-	email := s.settings.Get("acme.email")
+	return s.createACMEClientWithWorkspace(nil)
+}
+
+// createACMEClientWithWorkspace 创建 ACME 客户端（支持工作区配置）
+func (s *ACMEService) createACMEClientWithWorkspace(workspaceID *uint) (*lego.Client, error) {
+	var email, caURL, keyType string
+
+	// 根据是否指定工作区获取配置
+	if workspaceID != nil && *workspaceID > 0 {
+		// 从工作区获取配置
+		workspaceService := NewWorkspaceService()
+		workspace, err := workspaceService.Get(*workspaceID)
+		if err != nil {
+			return nil, fmt.Errorf("获取工作区配置失败: %w", err)
+		}
+		email = workspace.Email
+		caURL = workspace.CaURL
+		keyType = workspace.KeyType
+	} else {
+		// 使用全局配置
+		email = s.settings.Get("acme.email")
+		caURL = s.settings.Get("acme.ca_url")
+		keyType = "EC256" // 全局默认
+	}
+
 	if email == "" {
 		return nil, fmt.Errorf("请先配置 ACME 邮箱")
 	}
-
-	caURL := s.settings.Get("acme.ca_url")
 	if caURL == "" {
 		caURL = "https://acme-v02.api.letsencrypt.org/directory"
 	}
 
-	// 生成或加载私钥
-	privateKey, err := s.loadOrCreateKey()
+	// 生成或加载私钥（按工作区隔离）
+	privateKey, err := s.loadOrCreateKeyForWorkspace(workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +538,18 @@ func (s *ACMEService) createACMEClient() (*lego.Client, error) {
 
 	config := lego.NewConfig(user)
 	config.CADirURL = caURL
-	config.Certificate.KeyType = certcrypto.EC256
+
+	// 设置密钥类型
+	switch keyType {
+	case "EC384":
+		config.Certificate.KeyType = certcrypto.EC384
+	case "RSA2048":
+		config.Certificate.KeyType = certcrypto.RSA2048
+	case "RSA4096":
+		config.Certificate.KeyType = certcrypto.RSA4096
+	default:
+		config.Certificate.KeyType = certcrypto.EC256
+	}
 
 	// 设置客户端超时（从系统设置读取）
 	timeout := s.settings.GetInt("acme.challenge_timeout")
@@ -521,9 +578,42 @@ func (s *ACMEService) createACMEClient() (*lego.Client, error) {
 	return client, nil
 }
 
-// loadOrCreateKey 加载或创建私钥
+// loadOrCreateKey 加载或创建私钥（使用全局配置）
 func (s *ACMEService) loadOrCreateKey() (*ecdsa.PrivateKey, error) {
-	keyPath := filepath.Join(s.dataDir, "acme_account.key")
+	return s.loadOrCreateKeyForWorkspace(nil)
+}
+
+// loadOrCreateKeyForWorkspace 加载或创建私钥（按工作区隔离）
+func (s *ACMEService) loadOrCreateKeyForWorkspace(workspaceID *uint) (*ecdsa.PrivateKey, error) {
+	// 确定密钥文件路径
+	var keyPath string
+	if workspaceID != nil && *workspaceID > 0 {
+		// 工作区独立密钥：存储在数据库中
+		workspaceService := NewWorkspaceService()
+		keyData, err := workspaceService.GetAccountKey(*workspaceID)
+		if err != nil {
+			return nil, fmt.Errorf("获取工作区账号密钥失败: %w", err)
+		}
+		if keyData != nil && len(keyData) > 0 {
+			key, err := certcrypto.ParsePEMPrivateKey(keyData)
+			if err == nil {
+				return key.(*ecdsa.PrivateKey), nil
+			}
+		}
+		// 生成新密钥并存储到工作区
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return nil, err
+		}
+		keyPEM := certcrypto.PEMEncode(key)
+		if err := workspaceService.SetAccountKey(*workspaceID, keyPEM); err != nil {
+			return nil, fmt.Errorf("保存工作区账号密钥失败: %w", err)
+		}
+		return key, nil
+	}
+
+	// 全局密钥：存储在文件中
+	keyPath = filepath.Join(s.dataDir, "acme_account.key")
 
 	// 尝试加载现有密钥
 	if data, err := os.ReadFile(keyPath); err == nil {
@@ -674,4 +764,191 @@ func (s *ACMEService) createDNSProvider(providerType string, config map[string]i
 	clearDNSEnvVars()
 
 	return provider, err
+}
+
+// CloudflareRecord Cloudflare DNS 记录
+type CloudflareRecord struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Content string `json:"content"`
+}
+
+// CloudflareListResponse Cloudflare API 响应
+type CloudflareListResponse struct {
+	Success bool               `json:"success"`
+	Result  []CloudflareRecord `json:"result"`
+	Errors  []struct {
+		Message string `json:"message"`
+	} `json:"errors"`
+}
+
+// CloudflareZoneResponse Cloudflare Zone API 响应
+type CloudflareZoneResponse struct {
+	Success bool `json:"success"`
+	Result  []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"result"`
+}
+
+// cleanupACMEChallengeRecords 清理指定域名的 ACME challenge DNS 记录
+func (s *ACMEService) cleanupACMEChallengeRecords(domains []string, providerType string, config map[string]interface{}) error {
+	if providerType != "cloudflare" {
+		// 暂时只支持 Cloudflare
+		return nil
+	}
+
+	// 获取认证信息
+	var authHeader string
+	var authEmail string
+	if apiToken, ok := config["api_token"].(string); ok && apiToken != "" {
+		authHeader = "Bearer " + strings.TrimSpace(apiToken)
+	} else if apiKey, ok := config["api_key"].(string); ok && apiKey != "" {
+		authHeader = strings.TrimSpace(apiKey)
+		if email, ok := config["email"].(string); ok {
+			authEmail = strings.TrimSpace(email)
+		}
+	} else {
+		return nil // 没有认证信息，跳过
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	for _, domain := range domains {
+		// 获取根域名
+		rootDomain := extractRootDomain(domain)
+		challengeName := "_acme-challenge." + domain
+
+		// 获取 Zone ID
+		zoneID, err := s.getCloudflareZoneID(client, rootDomain, authHeader, authEmail)
+		if err != nil {
+			s.logger.Warn("acme", fmt.Sprintf("获取 Zone ID 失败 (%s): %v", rootDomain, err), nil)
+			continue
+		}
+
+		// 获取并删除 ACME challenge 记录
+		records, err := s.listCloudflareTXTRecords(client, zoneID, challengeName, authHeader, authEmail)
+		if err != nil {
+			s.logger.Warn("acme", fmt.Sprintf("获取 DNS 记录失败 (%s): %v", challengeName, err), nil)
+			continue
+		}
+
+		for _, record := range records {
+			if err := s.deleteCloudflareDNSRecord(client, zoneID, record.ID, authHeader, authEmail); err != nil {
+				s.logger.Warn("acme", fmt.Sprintf("删除 DNS 记录失败 (%s): %v", record.Name, err), nil)
+			} else {
+				s.logger.Info("acme", fmt.Sprintf("已删除旧的 ACME challenge 记录: %s", record.Name), nil)
+			}
+		}
+	}
+
+	return nil
+}
+
+// extractRootDomain 提取根域名
+func extractRootDomain(domain string) string {
+	parts := strings.Split(domain, ".")
+	if len(parts) >= 2 {
+		return parts[len(parts)-2] + "." + parts[len(parts)-1]
+	}
+	return domain
+}
+
+// getCloudflareZoneID 获取 Cloudflare Zone ID
+func (s *ACMEService) getCloudflareZoneID(client *http.Client, domain, authHeader, authEmail string) (string, error) {
+	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones?name=%s", domain)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	s.setCFAuthHeaders(req, authHeader, authEmail)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var zoneResp CloudflareZoneResponse
+	if err := decodeJSON(resp.Body, &zoneResp); err != nil {
+		return "", err
+	}
+
+	if !zoneResp.Success || len(zoneResp.Result) == 0 {
+		return "", fmt.Errorf("zone not found: %s", domain)
+	}
+
+	return zoneResp.Result[0].ID, nil
+}
+
+// listCloudflareTXTRecords 列出指定名称的 TXT 记录
+func (s *ACMEService) listCloudflareTXTRecords(client *http.Client, zoneID, name, authHeader, authEmail string) ([]CloudflareRecord, error) {
+	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records?type=TXT&name=%s", zoneID, name)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	s.setCFAuthHeaders(req, authHeader, authEmail)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var listResp CloudflareListResponse
+	if err := decodeJSON(resp.Body, &listResp); err != nil {
+		return nil, err
+	}
+
+	if !listResp.Success {
+		if len(listResp.Errors) > 0 {
+			return nil, fmt.Errorf(listResp.Errors[0].Message)
+		}
+		return nil, fmt.Errorf("cloudflare API error")
+	}
+
+	return listResp.Result, nil
+}
+
+// deleteCloudflareDNSRecord 删除 Cloudflare DNS 记录
+func (s *ACMEService) deleteCloudflareDNSRecord(client *http.Client, zoneID, recordID, authHeader, authEmail string) error {
+	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", zoneID, recordID)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	s.setCFAuthHeaders(req, authHeader, authEmail)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("delete failed with status: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// setCFAuthHeaders 设置 Cloudflare 认证头
+func (s *ACMEService) setCFAuthHeaders(req *http.Request, authHeader, authEmail string) {
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		req.Header.Set("Authorization", authHeader)
+	} else {
+		req.Header.Set("X-Auth-Key", authHeader)
+		req.Header.Set("X-Auth-Email", authEmail)
+	}
+	req.Header.Set("Content-Type", "application/json")
+}
+
+// decodeJSON 解码 JSON 响应
+func decodeJSON(r io.Reader, v interface{}) error {
+	return json.NewDecoder(r).Decode(v)
 }
