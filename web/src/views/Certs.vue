@@ -15,17 +15,17 @@ import {
   CheckCircle,
   Clock,
   XCircle,
-  X,
   Play,
   Save,
   Terminal,
   Search,
-  Filter,
-  XCircle as ClearIcon,
-  CheckSquare,
-  Square
+  XCircle as ClearIcon
 } from 'lucide-vue-next'
 import TaskLogModal from '@/components/TaskLogModal.vue'
+import FormModal from '@/components/FormModal.vue'
+import Modal from '@/components/Modal.vue'
+import FormGrid from '@/components/FormGrid.vue'
+import FormField from '@/components/FormField.vue'
 
 interface Cert {
   id: number
@@ -704,295 +704,225 @@ onMounted(loadData)
     </div>
 
     <!-- 新建证书模态框 -->
-    <dialog :class="['modal', showCreateModal && 'modal-open']">
-      <div class="modal-box">
-        <button
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-          @click="showCreateModal = false"
-        >
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">添加证书</h3>
+    <FormModal
+      :show="showCreateModal"
+      title="添加证书"
+      :loading="creating"
+      :error="createError"
+      submit-text="添加"
+      @close="showCreateModal = false"
+      @submit="handleCreate"
+    >
+      <FormGrid>
+        <FormField label="主域名" required>
+          <input
+            v-model="createForm.domain"
+            type="text"
+            class="input input-bordered"
+            placeholder="example.com"
+          />
+        </FormField>
 
-        <form @submit.prevent="handleCreate" class="space-y-4">
-          <div v-if="createError" class="alert alert-error text-sm">
-            {{ createError }}
-          </div>
+        <FormField label="SAN 域名" hint="多个用逗号分隔">
+          <input
+            v-model="createForm.san"
+            type="text"
+            class="input input-bordered"
+            placeholder="www.example.com, api.example.com"
+          />
+        </FormField>
+      </FormGrid>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">主域名 *</span>
-            </label>
+      <div class="form-control mt-4">
+        <label class="label">
+          <span class="label-text">验证方式 *</span>
+        </label>
+        <div class="space-y-2">
+          <label
+            v-for="ct in challengeTypes"
+            :key="ct.value"
+            class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
+            :class="createForm.challenge_type === ct.value ? 'border-primary bg-primary/5' : 'border-base-300 hover:border-base-content/30'"
+          >
             <input
-              v-model="createForm.domain"
-              type="text"
-              class="input input-bordered"
-              placeholder="example.com"
+              type="radio"
+              :value="ct.value"
+              v-model="createForm.challenge_type"
+              class="radio radio-primary mt-0.5"
             />
-          </div>
-
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">SAN 域名</span>
-              <span class="label-text-alt">多个用逗号分隔</span>
-            </label>
-            <input
-              v-model="createForm.san"
-              type="text"
-              class="input input-bordered"
-              placeholder="www.example.com, api.example.com"
-            />
-          </div>
-
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">验证方式 *</span>
-            </label>
-            <div class="space-y-2">
-              <label
-                v-for="ct in challengeTypes"
-                :key="ct.value"
-                class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
-                :class="createForm.challenge_type === ct.value ? 'border-primary bg-primary/5' : 'border-base-300 hover:border-base-content/30'"
-              >
-                <input
-                  type="radio"
-                  :value="ct.value"
-                  v-model="createForm.challenge_type"
-                  class="radio radio-primary mt-0.5"
-                />
-                <div>
-                  <div class="font-medium">{{ ct.label }}</div>
-                  <div class="text-sm text-base-content/60">{{ ct.desc }}</div>
-                </div>
-              </label>
+            <div>
+              <div class="font-medium">{{ ct.label }}</div>
+              <div class="text-sm text-base-content/60">{{ ct.desc }}</div>
             </div>
-          </div>
-
-          <div v-if="createForm.challenge_type === 'dns-01'" class="form-control">
-            <label class="label">
-              <span class="label-text">DNS 提供商 *</span>
-            </label>
-            <select v-model="createForm.dns_provider_id" class="select select-bordered">
-              <option :value="0" disabled>请选择</option>
-              <option v-for="p in dnsProviders" :key="p.id" :value="p.id">
-                {{ p.name }} ({{ p.type }})
-              </option>
-            </select>
-          </div>
-
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">工作区</span>
-              <span class="label-text-alt">可选，不选则使用全局配置</span>
-            </label>
-            <select v-model="createForm.workspace_id" class="select select-bordered">
-              <option :value="null">使用全局配置</option>
-              <option v-for="ws in workspaces" :key="ws.id" :value="ws.id">
-                {{ ws.name }}{{ ws.is_default ? ' (默认)' : '' }}
-              </option>
-            </select>
-          </div>
-
-          <div v-if="createForm.challenge_type === 'http-01'" class="text-sm text-warning bg-warning/10 p-3 rounded-lg">
-            <p class="font-medium mb-1">HTTP-01 验证注意事项：</p>
-            <ul class="list-disc list-inside space-y-1 text-base-content/70">
-              <li>域名需解析到本服务器 IP</li>
-              <li>80 端口需从公网可访问</li>
-              <li>不支持通配符证书</li>
-            </ul>
-          </div>
-
-          <div class="text-sm text-base-content/60 bg-base-200 p-3 rounded-lg">
-            <p>添加后证书将处于"待申请"状态，你可以稍后点击"申请"按钮向 Let's Encrypt 申请证书。</p>
-          </div>
-
-          <div class="modal-action">
-            <button type="button" class="btn" @click="showCreateModal = false">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="creating">
-              <span v-if="creating" class="loading loading-spinner loading-sm"></span>
-              添加
-            </button>
-          </div>
-        </form>
+          </label>
+        </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showCreateModal = false">close</button>
-      </form>
-    </dialog>
+
+      <FormGrid v-if="createForm.challenge_type === 'dns-01'" class="mt-4">
+        <FormField label="DNS 提供商" required>
+          <select v-model="createForm.dns_provider_id" class="select select-bordered">
+            <option :value="0" disabled>请选择</option>
+            <option v-for="p in dnsProviders" :key="p.id" :value="p.id">
+              {{ p.name }} ({{ p.type }})
+            </option>
+          </select>
+        </FormField>
+      </FormGrid>
+
+      <FormGrid class="mt-4">
+        <FormField label="工作区" hint="可选，不选则使用全局配置">
+          <select v-model="createForm.workspace_id" class="select select-bordered">
+            <option :value="null">使用全局配置</option>
+            <option v-for="ws in workspaces" :key="ws.id" :value="ws.id">
+              {{ ws.name }}{{ ws.is_default ? ' (默认)' : '' }}
+            </option>
+          </select>
+        </FormField>
+      </FormGrid>
+
+      <div v-if="createForm.challenge_type === 'http-01'" class="text-sm text-warning bg-warning/10 p-3 rounded-lg mt-4">
+        <p class="font-medium mb-1">HTTP-01 验证注意事项：</p>
+        <ul class="list-disc list-inside space-y-1 text-base-content/70">
+          <li>域名需解析到本服务器 IP</li>
+          <li>80 端口需从公网可访问</li>
+          <li>不支持通配符证书</li>
+        </ul>
+      </div>
+
+      <div class="text-sm text-base-content/60 bg-base-200 p-3 rounded-lg mt-4">
+        <p>添加后证书将处于"待申请"状态，你可以稍后点击"申请"按钮向 Let's Encrypt 申请证书。</p>
+      </div>
+    </FormModal>
 
     <!-- 编辑证书模态框 -->
-    <dialog :class="['modal', showEditModal && 'modal-open']">
-      <div class="modal-box">
-        <button
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-          @click="showEditModal = false"
-        >
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">编辑证书</h3>
+    <FormModal
+      :show="showEditModal"
+      title="编辑证书"
+      :loading="editing"
+      :error="editError"
+      @close="showEditModal = false"
+      @submit="handleEdit"
+    >
+      <FormGrid>
+        <FormField label="主域名" required>
+          <input
+            v-model="editForm.domain"
+            type="text"
+            class="input input-bordered"
+            placeholder="example.com"
+          />
+        </FormField>
 
-        <form @submit.prevent="handleEdit" class="space-y-4">
-          <div v-if="editError" class="alert alert-error text-sm">
-            {{ editError }}
-          </div>
+        <FormField label="SAN 域名" hint="多个用逗号分隔">
+          <input
+            v-model="editForm.san"
+            type="text"
+            class="input input-bordered"
+            placeholder="www.example.com, api.example.com"
+          />
+        </FormField>
+      </FormGrid>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">主域名 *</span>
-            </label>
+      <div class="form-control mt-4">
+        <label class="label">
+          <span class="label-text">验证方式 *</span>
+        </label>
+        <div class="space-y-2">
+          <label
+            v-for="ct in challengeTypes"
+            :key="ct.value"
+            class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
+            :class="editForm.challenge_type === ct.value ? 'border-primary bg-primary/5' : 'border-base-300 hover:border-base-content/30'"
+          >
             <input
-              v-model="editForm.domain"
-              type="text"
-              class="input input-bordered"
-              placeholder="example.com"
+              type="radio"
+              :value="ct.value"
+              v-model="editForm.challenge_type"
+              class="radio radio-primary mt-0.5"
             />
-          </div>
-
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">SAN 域名</span>
-              <span class="label-text-alt">多个用逗号分隔</span>
-            </label>
-            <input
-              v-model="editForm.san"
-              type="text"
-              class="input input-bordered"
-              placeholder="www.example.com, api.example.com"
-            />
-          </div>
-
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">验证方式 *</span>
-            </label>
-            <div class="space-y-2">
-              <label
-                v-for="ct in challengeTypes"
-                :key="ct.value"
-                class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
-                :class="editForm.challenge_type === ct.value ? 'border-primary bg-primary/5' : 'border-base-300 hover:border-base-content/30'"
-              >
-                <input
-                  type="radio"
-                  :value="ct.value"
-                  v-model="editForm.challenge_type"
-                  class="radio radio-primary mt-0.5"
-                />
-                <div>
-                  <div class="font-medium">{{ ct.label }}</div>
-                  <div class="text-sm text-base-content/60">{{ ct.desc }}</div>
-                </div>
-              </label>
+            <div>
+              <div class="font-medium">{{ ct.label }}</div>
+              <div class="text-sm text-base-content/60">{{ ct.desc }}</div>
             </div>
-          </div>
-
-          <div v-if="editForm.challenge_type === 'dns-01'" class="form-control">
-            <label class="label">
-              <span class="label-text">DNS 提供商 *</span>
-            </label>
-            <select v-model="editForm.dns_provider_id" class="select select-bordered">
-              <option :value="0" disabled>请选择</option>
-              <option v-for="p in dnsProviders" :key="p.id" :value="p.id">
-                {{ p.name }} ({{ p.type }})
-              </option>
-            </select>
-          </div>
-
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">工作区</span>
-              <span class="label-text-alt">可选，不选则使用全局配置</span>
-            </label>
-            <select v-model="editForm.workspace_id" class="select select-bordered">
-              <option :value="null">使用全局配置</option>
-              <option v-for="ws in workspaces" :key="ws.id" :value="ws.id">
-                {{ ws.name }}{{ ws.is_default ? ' (默认)' : '' }}
-              </option>
-            </select>
-          </div>
-
-          <div v-if="editForm.challenge_type === 'http-01'" class="text-sm text-warning bg-warning/10 p-3 rounded-lg">
-            <p class="font-medium mb-1">HTTP-01 验证注意事项：</p>
-            <ul class="list-disc list-inside space-y-1 text-base-content/70">
-              <li>域名需解析到本服务器 IP</li>
-              <li>80 端口需从公网可访问</li>
-              <li>不支持通配符证书</li>
-            </ul>
-          </div>
-
-          <div class="text-sm text-base-content/60 bg-base-200 p-3 rounded-lg">
-            <p>修改配置后，如果证书已申请，需要重新申请或续期才能生效。</p>
-          </div>
-
-          <div class="modal-action">
-            <button type="button" class="btn" @click="showEditModal = false">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="editing">
-              <span v-if="editing" class="loading loading-spinner loading-sm"></span>
-              <Save v-else class="w-4 h-4" />
-              保存
-            </button>
-          </div>
-        </form>
+          </label>
+        </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showEditModal = false">close</button>
-      </form>
-    </dialog>
+
+      <FormGrid v-if="editForm.challenge_type === 'dns-01'" class="mt-4">
+        <FormField label="DNS 提供商" required>
+          <select v-model="editForm.dns_provider_id" class="select select-bordered">
+            <option :value="0" disabled>请选择</option>
+            <option v-for="p in dnsProviders" :key="p.id" :value="p.id">
+              {{ p.name }} ({{ p.type }})
+            </option>
+          </select>
+        </FormField>
+      </FormGrid>
+
+      <FormGrid class="mt-4">
+        <FormField label="工作区" hint="可选，不选则使用全局配置">
+          <select v-model="editForm.workspace_id" class="select select-bordered">
+            <option :value="null">使用全局配置</option>
+            <option v-for="ws in workspaces" :key="ws.id" :value="ws.id">
+              {{ ws.name }}{{ ws.is_default ? ' (默认)' : '' }}
+            </option>
+          </select>
+        </FormField>
+      </FormGrid>
+
+      <div v-if="editForm.challenge_type === 'http-01'" class="text-sm text-warning bg-warning/10 p-3 rounded-lg mt-4">
+        <p class="font-medium mb-1">HTTP-01 验证注意事项：</p>
+        <ul class="list-disc list-inside space-y-1 text-base-content/70">
+          <li>域名需解析到本服务器 IP</li>
+          <li>80 端口需从公网可访问</li>
+          <li>不支持通配符证书</li>
+        </ul>
+      </div>
+
+      <div class="text-sm text-base-content/60 bg-base-200 p-3 rounded-lg mt-4">
+        <p>修改配置后，如果证书已申请，需要重新申请或续期才能生效。</p>
+      </div>
+    </FormModal>
 
     <!-- 批量删除确认模态框 -->
-    <dialog :class="['modal', showBatchDeleteModal && 'modal-open']">
-      <div class="modal-box">
-        <button
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-          @click="showBatchDeleteModal = false"
-        >
-          <X class="w-4 h-4" />
+    <Modal
+      :show="showBatchDeleteModal"
+      title="确认批量删除"
+      size="sm"
+      @close="showBatchDeleteModal = false"
+    >
+      <p>确定要删除选中的 {{ selectedIds.length }} 个证书吗？此操作不可恢复。</p>
+      <template #footer>
+        <button class="btn" @click="showBatchDeleteModal = false">取消</button>
+        <button class="btn btn-error" :disabled="batchOperating" @click="handleBatchDelete">
+          <span v-if="batchOperating" class="loading loading-spinner loading-sm"></span>
+          删除
         </button>
-        <h3 class="font-bold text-lg">确认批量删除</h3>
-        <p class="py-4">确定要删除选中的 {{ selectedIds.length }} 个证书吗？此操作不可恢复。</p>
-        <div class="modal-action">
-          <button class="btn" @click="showBatchDeleteModal = false">取消</button>
-          <button class="btn btn-error" :disabled="batchOperating" @click="handleBatchDelete">
-            <span v-if="batchOperating" class="loading loading-spinner loading-sm"></span>
-            删除
-          </button>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showBatchDeleteModal = false">close</button>
-      </form>
-    </dialog>
+      </template>
+    </Modal>
 
     <!-- 批量续期确认模态框 -->
-    <dialog :class="['modal', showBatchRenewModal && 'modal-open']">
-      <div class="modal-box">
-        <button
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-          @click="showBatchRenewModal = false"
-        >
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg">确认批量续期</h3>
-        <p class="py-4">确定要为选中的 {{ selectedIds.length }} 个证书申请续期吗？</p>
-        <div class="alert alert-info text-sm mb-4">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-          </svg>
-          <span>续期操作将异步执行，可在证书列表查看进度</span>
-        </div>
-        <div class="modal-action">
-          <button class="btn" @click="showBatchRenewModal = false">取消</button>
-          <button class="btn btn-primary" :disabled="batchOperating" @click="handleBatchRenew">
-            <span v-if="batchOperating" class="loading loading-spinner loading-sm"></span>
-            确认续期
-          </button>
-        </div>
+    <Modal
+      :show="showBatchRenewModal"
+      title="确认批量续期"
+      size="sm"
+      @close="showBatchRenewModal = false"
+    >
+      <p class="mb-4">确定要为选中的 {{ selectedIds.length }} 个证书申请续期吗？</p>
+      <div class="alert alert-info text-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <span>续期操作将异步执行，可在证书列表查看进度</span>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showBatchRenewModal = false">close</button>
-      </form>
-    </dialog>
+      <template #footer>
+        <button class="btn" @click="showBatchRenewModal = false">取消</button>
+        <button class="btn btn-primary" :disabled="batchOperating" @click="handleBatchRenew">
+          <span v-if="batchOperating" class="loading loading-spinner loading-sm"></span>
+          确认续期
+        </button>
+      </template>
+    </Modal>
 
     <!-- 分页控件 -->
     <div v-if="totalPages > 1" class="flex justify-center mt-6">

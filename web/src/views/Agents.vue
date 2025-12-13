@@ -4,6 +4,10 @@ import { useRoute } from 'vue-router'
 import { agentsApi } from '@/api'
 import { useToast } from '@/stores/toast'
 import { useConfirm } from '@/stores/confirm'
+import FormModal from '@/components/FormModal.vue'
+import Modal from '@/components/Modal.vue'
+import FormGrid from '@/components/FormGrid.vue'
+import FormField from '@/components/FormField.vue'
 import {
   Plus,
   RefreshCw,
@@ -14,7 +18,6 @@ import {
   Server,
   Wifi,
   WifiOff,
-  X,
   Copy,
   Check,
   Search,
@@ -434,151 +437,109 @@ onUnmounted(() => {
     </div>
 
     <!-- 新建 Agent 模态框 -->
-    <dialog :class="['modal', showCreateModal && 'modal-open']">
-      <div class="modal-box">
-        <button
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-          @click="showCreateModal = false"
-        >
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">添加 Agent</h3>
+    <FormModal
+      :show="showCreateModal"
+      title="添加 Agent"
+      :loading="creating"
+      :error="createError"
+      submit-text="创建"
+      @close="showCreateModal = false"
+      @submit="handleCreate"
+    >
+      <FormGrid>
+        <FormField label="名称" required>
+          <input
+            v-model="createForm.name"
+            type="text"
+            class="input input-bordered"
+            placeholder="例如: Web Server 01"
+          />
+        </FormField>
 
-        <form @submit.prevent="handleCreate" class="space-y-4">
-          <div v-if="createError" class="alert alert-error text-sm">
-            {{ createError }}
-          </div>
-
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">名称 *</span>
-            </label>
-            <input
-              v-model="createForm.name"
-              type="text"
-              class="input input-bordered"
-              placeholder="例如: Web Server 01"
-            />
-          </div>
-
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">轮询间隔 (秒)</span>
-            </label>
-            <input
-              v-model.number="createForm.poll_interval"
-              type="number"
-              class="input input-bordered"
-              min="60"
-              max="86400"
-            />
-            <label class="label">
-              <span class="label-text-alt">Agent 检查更新的频率，建议 300-600 秒</span>
-            </label>
-          </div>
-
-          <div class="modal-action">
-            <button type="button" class="btn" @click="showCreateModal = false">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="creating">
-              <span v-if="creating" class="loading loading-spinner loading-sm"></span>
-              创建
-            </button>
-          </div>
-        </form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showCreateModal = false">close</button>
-      </form>
-    </dialog>
+        <FormField label="轮询间隔" hint="Agent 检查更新的频率，建议 300-600 秒">
+          <input
+            v-model.number="createForm.poll_interval"
+            type="number"
+            class="input input-bordered"
+            min="60"
+            max="86400"
+          />
+        </FormField>
+      </FormGrid>
+    </FormModal>
 
     <!-- 连接信息模态框 -->
-    <dialog :class="['modal', showConnectModal && 'modal-open']">
-      <div class="modal-box">
-        <button
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-          @click="showConnectModal = false"
-        >
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">Agent 连接信息</h3>
-
-        <div class="alert alert-warning mb-4">
-          <AlertTriangle class="w-5 h-5" />
-          <span>请妥善保管此连接 URL，关闭后将无法再次查看！</span>
-        </div>
-
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">连接 URL</span>
-          </label>
-          <div class="flex gap-2">
-            <input
-              :value="connectUrl"
-              type="text"
-              class="input input-bordered flex-1 font-mono text-xs"
-              readonly
-            />
-            <button class="btn btn-ghost" @click="copyConnectUrl" :title="copiedType === 'url' ? '已复制!' : '复制 URL'">
-              <Check v-if="copiedType === 'url'" class="w-5 h-5 text-success" />
-              <Copy v-else class="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        <div class="mt-4 p-4 bg-base-200 rounded-lg">
-          <div class="flex items-center justify-between mb-2">
-            <p class="text-sm font-medium">在目标服务器上运行:</p>
-            <button class="btn btn-ghost btn-xs" @click="copyCommand" :title="copiedType === 'command' ? '已复制!' : '复制命令'">
-              <Check v-if="copiedType === 'command'" class="w-4 h-4 text-success" />
-              <Copy v-else class="w-4 h-4" />
-              <span class="ml-1">{{ copiedType === 'command' ? '已复制' : '复制命令' }}</span>
-            </button>
-          </div>
-          <pre class="text-xs overflow-x-auto bg-base-300 p-2 rounded">./letsync-agent "{{ connectUrl }}"</pre>
-        </div>
-
-        <div class="modal-action">
-          <button class="btn btn-primary" @click="showConnectModal = false">我已保存</button>
-        </div>
+    <Modal
+      :show="showConnectModal"
+      title="Agent 连接信息"
+      @close="showConnectModal = false"
+    >
+      <div class="alert alert-warning mb-4">
+        <AlertTriangle class="w-5 h-5" />
+        <span>请妥善保管此连接 URL，关闭后将无法再次查看！</span>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showConnectModal = false">close</button>
-      </form>
-    </dialog>
 
-    <!-- 重置密钥确认模态框 -->
-    <dialog :class="['modal', regenerateId !== null && 'modal-open']">
-      <div class="modal-box">
-        <button
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-          @click="regenerateId = null"
-        >
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg">确认重置密钥</h3>
-        <div class="alert alert-warning my-4">
-          <AlertTriangle class="w-5 h-5" />
-          <div>
-            <p class="font-medium">重置密钥后:</p>
-            <ul class="text-sm mt-1 space-y-1">
-              <li>• 旧的连接 URL 将立即失效</li>
-              <li>• 需要使用新的连接 URL 重新配置 Agent</li>
-              <li>• Agent 将无法连接服务器，直到更新配置</li>
-            </ul>
-          </div>
-        </div>
-        <p class="text-sm text-base-content/70">确定要重置这个 Agent 的密钥吗？</p>
-        <div class="modal-action">
-          <button class="btn" @click="regenerateId = null">取消</button>
-          <button class="btn btn-warning" :disabled="regeneratingId !== null" @click="confirmRegenerate">
-            <span v-if="regeneratingId !== null" class="loading loading-spinner loading-sm"></span>
-            确认重置
+      <div class="form-control">
+        <label class="label">
+          <span class="label-text">连接 URL</span>
+        </label>
+        <div class="flex gap-2">
+          <input
+            :value="connectUrl"
+            type="text"
+            class="input input-bordered flex-1 font-mono text-xs"
+            readonly
+          />
+          <button class="btn btn-ghost" @click="copyConnectUrl" :title="copiedType === 'url' ? '已复制!' : '复制 URL'">
+            <Check v-if="copiedType === 'url'" class="w-5 h-5 text-success" />
+            <Copy v-else class="w-5 h-5" />
           </button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="regenerateId = null">close</button>
-      </form>
-    </dialog>
+
+      <div class="mt-4 p-4 bg-base-200 rounded-lg">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-sm font-medium">在目标服务器上运行:</p>
+          <button class="btn btn-ghost btn-xs" @click="copyCommand" :title="copiedType === 'command' ? '已复制!' : '复制命令'">
+            <Check v-if="copiedType === 'command'" class="w-4 h-4 text-success" />
+            <Copy v-else class="w-4 h-4" />
+            <span class="ml-1">{{ copiedType === 'command' ? '已复制' : '复制命令' }}</span>
+          </button>
+        </div>
+        <pre class="text-xs overflow-x-auto bg-base-300 p-2 rounded">./letsync-agent "{{ connectUrl }}"</pre>
+      </div>
+
+      <template #footer>
+        <button class="btn btn-primary" @click="showConnectModal = false">我已保存</button>
+      </template>
+    </Modal>
+
+    <!-- 重置密钥确认模态框 -->
+    <Modal
+      :show="regenerateId !== null"
+      title="确认重置密钥"
+      @close="regenerateId = null"
+    >
+      <div class="alert alert-warning mb-4">
+        <AlertTriangle class="w-5 h-5" />
+        <div>
+          <p class="font-medium">重置密钥后:</p>
+          <ul class="text-sm mt-1 space-y-1">
+            <li>• 旧的连接 URL 将立即失效</li>
+            <li>• 需要使用新的连接 URL 重新配置 Agent</li>
+            <li>• Agent 将无法连接服务器，直到更新配置</li>
+          </ul>
+        </div>
+      </div>
+      <p class="text-sm text-base-content/70">确定要重置这个 Agent 的密钥吗？</p>
+
+      <template #footer>
+        <button class="btn" @click="regenerateId = null">取消</button>
+        <button class="btn btn-warning" :disabled="regeneratingId !== null" @click="confirmRegenerate">
+          <span v-if="regeneratingId !== null" class="loading loading-spinner loading-sm"></span>
+          确认重置
+        </button>
+      </template>
+    </Modal>
   </div>
 </template>

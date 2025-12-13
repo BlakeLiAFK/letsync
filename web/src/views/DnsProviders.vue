@@ -3,15 +3,16 @@ import { ref, onMounted } from 'vue'
 import { dnsProvidersApi } from '@/api'
 import { useToast } from '@/stores/toast'
 import { useConfirm } from '@/stores/confirm'
+import FormModal from '@/components/FormModal.vue'
+import FormGrid from '@/components/FormGrid.vue'
+import FormField from '@/components/FormField.vue'
 import {
   Plus,
   RefreshCw,
   Trash2,
   Edit,
   AlertTriangle,
-  Globe,
-  X,
-  Save
+  Globe
 } from 'lucide-vue-next'
 
 interface DnsProvider {
@@ -279,82 +280,74 @@ onMounted(loadData)
     </div>
 
     <!-- 新建/编辑模态框 -->
-    <dialog :class="['modal', showModal && 'modal-open']">
-      <div class="modal-box">
-        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="showModal = false">
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">{{ isEdit ? '编辑' : '添加' }} DNS 提供商</h3>
+    <FormModal
+      :show="showModal"
+      :title="`${isEdit ? '编辑' : '添加'} DNS 提供商`"
+      :loading="saving"
+      :error="formError"
+      @close="showModal = false"
+      @submit="handleSave"
+    >
+      <FormGrid>
+        <FormField label="名称" required>
+          <input v-model="form.name" type="text" class="input input-bordered" placeholder="例如: 我的 Cloudflare" />
+        </FormField>
 
-        <form @submit.prevent="handleSave" class="space-y-4">
-          <div v-if="formError" class="alert alert-error text-sm">{{ formError }}</div>
+        <FormField label="类型" required>
+          <select v-model="form.type" class="select select-bordered" @change="onTypeChange" :disabled="isEdit">
+            <option value="" disabled>请选择</option>
+            <option v-for="t in dnsTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
+          </select>
+        </FormField>
+      </FormGrid>
 
-          <div class="form-control">
-            <label class="label"><span class="label-text">名称 *</span></label>
-            <input v-model="form.name" type="text" class="input input-bordered" placeholder="例如: 我的 Cloudflare" />
+      <!-- 动态配置字段 -->
+      <template v-if="form.type">
+        <div class="divider text-sm">API 配置{{ isEdit ? ' (留空则不修改)' : '' }}</div>
+
+        <!-- Cloudflare 认证方式选择 -->
+        <template v-if="form.type === 'cloudflare'">
+          <FormGrid>
+            <FormField label="认证方式">
+              <select v-model="cfAuthMethod" class="select select-bordered" @change="onCfAuthMethodChange">
+                <option v-for="m in cfAuthMethods" :key="m.value" :value="m.value">{{ m.label }}</option>
+              </select>
+            </FormField>
+          </FormGrid>
+          <!-- API Token 提示 -->
+          <div v-if="cfAuthMethod === 'api_token'" class="text-sm text-base-content/60 bg-info/10 p-3 rounded-lg mt-3">
+            <p class="font-medium text-info">推荐使用 API Token</p>
+            <p class="mt-1">在 Cloudflare 控制台创建 API Token:</p>
+            <ol class="list-decimal list-inside mt-1 space-y-1">
+              <li>进入 My Profile → API Tokens → Create Token</li>
+              <li>选择 "Edit zone DNS" 模板或自定义权限</li>
+              <li>权限需要: Zone:Read 和 DNS:Edit</li>
+            </ol>
           </div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">类型 *</span></label>
-            <select v-model="form.type" class="select select-bordered" @change="onTypeChange" :disabled="isEdit">
-              <option value="" disabled>请选择</option>
-              <option v-for="t in dnsTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
-            </select>
+          <!-- Global API Key 提示 -->
+          <div v-else class="text-sm text-base-content/60 bg-warning/10 p-3 rounded-lg mt-3">
+            <p class="font-medium text-warning">Global API Key 拥有完整账户权限，建议使用 API Token</p>
+            <p class="mt-1">Global API Key 可在:</p>
+            <p>Cloudflare 控制台 → My Profile → API Tokens → Global API Key 获取</p>
           </div>
+        </template>
 
-          <!-- 动态配置字段 -->
-          <template v-if="form.type">
-            <div class="divider text-sm">API 配置{{ isEdit ? ' (留空则不修改)' : '' }}</div>
-
-            <!-- Cloudflare 认证方式选择 -->
-            <template v-if="form.type === 'cloudflare'">
-              <div class="form-control mb-3">
-                <label class="label"><span class="label-text">认证方式</span></label>
-                <select v-model="cfAuthMethod" class="select select-bordered" @change="onCfAuthMethodChange">
-                  <option v-for="m in cfAuthMethods" :key="m.value" :value="m.value">{{ m.label }}</option>
-                </select>
-              </div>
-              <!-- API Token 提示 -->
-              <div v-if="cfAuthMethod === 'api_token'" class="text-sm text-base-content/60 bg-info/10 p-3 rounded-lg mb-3">
-                <p class="font-medium text-info">推荐使用 API Token</p>
-                <p class="mt-1">在 Cloudflare 控制台创建 API Token:</p>
-                <ol class="list-decimal list-inside mt-1 space-y-1">
-                  <li>进入 My Profile → API Tokens → Create Token</li>
-                  <li>选择 "Edit zone DNS" 模板或自定义权限</li>
-                  <li>权限需要: Zone:Read 和 DNS:Edit</li>
-                </ol>
-              </div>
-              <!-- Global API Key 提示 -->
-              <div v-else class="text-sm text-base-content/60 bg-warning/10 p-3 rounded-lg mb-3">
-                <p class="font-medium text-warning">Global API Key 拥有完整账户权限，建议使用 API Token</p>
-                <p class="mt-1">Global API Key 可在:</p>
-                <p>Cloudflare 控制台 → My Profile → API Tokens → Global API Key 获取</p>
-              </div>
-            </template>
-
-            <div v-for="field in getConfigFields(form.type)" :key="field" class="form-control">
-              <label class="label">
-                <span class="label-text">{{ fieldLabels[field] || field }}{{ isEdit ? '' : ' *' }}</span>
-              </label>
-              <input
-                v-model="form.config[field]"
-                :type="field.includes('secret') || field.includes('token') || field === 'api_key' ? 'password' : 'text'"
-                class="input input-bordered"
-                :placeholder="isEdit ? '留空则不修改' : ''"
-              />
-            </div>
-          </template>
-
-          <div class="modal-action">
-            <button type="button" class="btn" @click="showModal = false">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="saving">
-              <span v-if="saving" class="loading loading-spinner loading-sm"></span>
-              <Save v-else class="w-4 h-4" />
-              保存
-            </button>
-          </div>
-        </form>
-      </div>
-    </dialog>
+        <FormGrid class="mt-3">
+          <FormField
+            v-for="field in getConfigFields(form.type)"
+            :key="field"
+            :label="fieldLabels[field] || field"
+            :required="!isEdit"
+          >
+            <input
+              v-model="form.config[field]"
+              :type="field.includes('secret') || field.includes('token') || field === 'api_key' ? 'password' : 'text'"
+              class="input input-bordered"
+              :placeholder="isEdit ? '留空则不修改' : ''"
+            />
+          </FormField>
+        </FormGrid>
+      </template>
+    </FormModal>
   </div>
 </template>

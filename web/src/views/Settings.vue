@@ -13,7 +13,6 @@ import {
   Shield,
   Eye,
   EyeOff,
-  X,
   Download,
   Upload,
   FileJson,
@@ -23,6 +22,10 @@ import {
   Network,
   Gauge
 } from 'lucide-vue-next'
+import Modal from '@/components/Modal.vue'
+import FormModal from '@/components/FormModal.vue'
+import FormGrid from '@/components/FormGrid.vue'
+import FormField from '@/components/FormField.vue'
 
 const authStore = useAuthStore()
 
@@ -805,128 +808,110 @@ onMounted(loadSettings)
     </template>
 
     <!-- 导入确认模态框 -->
-    <dialog :class="['modal', showImportModal && 'modal-open']">
-      <div class="modal-box">
-        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="showImportModal = false">
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">
-          <FileJson class="w-5 h-5 inline mr-2" />
+    <Modal
+      :show="showImportModal"
+      title="导入配置"
+      @close="showImportModal = false"
+    >
+      <template #header>
+        <h3 class="font-bold text-lg flex items-center gap-2">
+          <FileJson class="w-5 h-5" />
           导入配置
         </h3>
+      </template>
 
-        <div v-if="importError" class="alert alert-error text-sm mb-4">
-          {{ importError }}
-        </div>
+      <div v-if="importError" class="alert alert-error text-sm mb-4">
+        {{ importError }}
+      </div>
 
-        <div v-else class="space-y-4">
-          <div class="alert alert-warning">
-            <AlertTriangle class="w-5 h-5" />
-            <div>
-              <p class="font-medium">确认导入配置？</p>
-              <p class="text-sm">导入的配置将覆盖当前设置，请确保配置文件正确。</p>
-            </div>
-          </div>
-
-          <div class="bg-base-200 p-4 rounded-lg">
-            <p class="text-sm font-medium mb-2">将导入以下配置：</p>
-            <ul class="text-sm space-y-1 list-disc list-inside">
-              <li>ACME 设置（邮箱、目录、密钥类型等）</li>
-              <li>续期调度设置</li>
-              <li>系统安全配置</li>
-            </ul>
+      <div v-else class="space-y-4">
+        <div class="alert alert-warning">
+          <AlertTriangle class="w-5 h-5" />
+          <div>
+            <p class="font-medium">确认导入配置？</p>
+            <p class="text-sm">导入的配置将覆盖当前设置，请确保配置文件正确。</p>
           </div>
         </div>
 
-        <div class="modal-action">
-          <button class="btn" @click="showImportModal = false">取消</button>
-          <button
-            v-if="!importError"
-            class="btn btn-primary"
-            :disabled="importing"
-            @click="confirmImport"
-          >
-            <span v-if="importing" class="loading loading-spinner loading-sm"></span>
-            确认导入
-          </button>
+        <div class="bg-base-200 p-4 rounded-lg">
+          <p class="text-sm font-medium mb-2">将导入以下配置：</p>
+          <ul class="text-sm space-y-1 list-disc list-inside">
+            <li>ACME 设置（邮箱、目录、密钥类型等）</li>
+            <li>续期调度设置</li>
+            <li>系统安全配置</li>
+          </ul>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showImportModal = false">close</button>
-      </form>
-    </dialog>
+
+      <template #footer>
+        <button class="btn" @click="showImportModal = false">取消</button>
+        <button
+          v-if="!importError"
+          class="btn btn-primary"
+          :disabled="importing"
+          @click="confirmImport"
+        >
+          <span v-if="importing" class="loading loading-spinner loading-sm"></span>
+          确认导入
+        </button>
+      </template>
+    </Modal>
 
     <!-- 修改密码模态框 -->
-    <dialog :class="['modal', showPasswordModal && 'modal-open']">
-      <div class="modal-box">
-        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="showPasswordModal = false">
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">修改密码</h3>
-
-        <form @submit.prevent="handleChangePassword" class="space-y-4">
-          <div v-if="passwordError" class="alert alert-error text-sm">{{ passwordError }}</div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">当前密码</span></label>
-            <div class="relative">
-              <input
-                v-model="passwordForm.oldPassword"
-                :type="showOldPassword ? 'text' : 'password'"
-                class="input input-bordered w-full pr-12"
-              />
-              <button
-                type="button"
-                class="absolute right-3 top-1/2 -translate-y-1/2"
-                @click="showOldPassword = !showOldPassword"
-              >
-                <Eye v-if="!showOldPassword" class="w-5 h-5 text-base-content/40" />
-                <EyeOff v-else class="w-5 h-5 text-base-content/40" />
-              </button>
-            </div>
-          </div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">新密码</span></label>
-            <div class="relative">
-              <input
-                v-model="passwordForm.newPassword"
-                :type="showNewPassword ? 'text' : 'password'"
-                class="input input-bordered w-full pr-12"
-                placeholder="至少 8 位"
-              />
-              <button
-                type="button"
-                class="absolute right-3 top-1/2 -translate-y-1/2"
-                @click="showNewPassword = !showNewPassword"
-              >
-                <Eye v-if="!showNewPassword" class="w-5 h-5 text-base-content/40" />
-                <EyeOff v-else class="w-5 h-5 text-base-content/40" />
-              </button>
-            </div>
-          </div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">确认新密码</span></label>
+    <FormModal
+      :show="showPasswordModal"
+      title="修改密码"
+      :loading="changingPassword"
+      :error="passwordError"
+      submit-text="确认修改"
+      @close="showPasswordModal = false"
+      @submit="handleChangePassword"
+    >
+      <FormGrid>
+        <FormField label="当前密码" required>
+          <div class="relative">
             <input
-              v-model="passwordForm.confirmPassword"
-              :type="showNewPassword ? 'text' : 'password'"
-              class="input input-bordered"
+              v-model="passwordForm.oldPassword"
+              :type="showOldPassword ? 'text' : 'password'"
+              class="input input-bordered w-full pr-12"
             />
-          </div>
-
-          <div class="modal-action">
-            <button type="button" class="btn" @click="showPasswordModal = false">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="changingPassword">
-              <span v-if="changingPassword" class="loading loading-spinner loading-sm"></span>
-              确认修改
+            <button
+              type="button"
+              class="absolute right-3 top-1/2 -translate-y-1/2"
+              @click="showOldPassword = !showOldPassword"
+            >
+              <Eye v-if="!showOldPassword" class="w-5 h-5 text-base-content/40" />
+              <EyeOff v-else class="w-5 h-5 text-base-content/40" />
             </button>
           </div>
-        </form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showPasswordModal = false">close</button>
-      </form>
-    </dialog>
+        </FormField>
+
+        <FormField label="新密码" required hint="至少 8 位">
+          <div class="relative">
+            <input
+              v-model="passwordForm.newPassword"
+              :type="showNewPassword ? 'text' : 'password'"
+              class="input input-bordered w-full pr-12"
+            />
+            <button
+              type="button"
+              class="absolute right-3 top-1/2 -translate-y-1/2"
+              @click="showNewPassword = !showNewPassword"
+            >
+              <Eye v-if="!showNewPassword" class="w-5 h-5 text-base-content/40" />
+              <EyeOff v-else class="w-5 h-5 text-base-content/40" />
+            </button>
+          </div>
+        </FormField>
+
+        <FormField label="确认新密码" required>
+          <input
+            v-model="passwordForm.confirmPassword"
+            :type="showNewPassword ? 'text' : 'password'"
+            class="input input-bordered"
+          />
+        </FormField>
+      </FormGrid>
+    </FormModal>
   </div>
 </template>

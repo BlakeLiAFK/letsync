@@ -16,11 +16,14 @@ import {
   FileKey,
   FolderOpen,
   Terminal,
-  X,
   Copy,
   Check,
   Save
 } from 'lucide-vue-next'
+import Modal from '@/components/Modal.vue'
+import FormModal from '@/components/FormModal.vue'
+import FormGrid from '@/components/FormGrid.vue'
+import FormField from '@/components/FormField.vue'
 
 interface AgentCert {
   id: number
@@ -435,237 +438,179 @@ onMounted(loadData)
     </template>
 
     <!-- 编辑 Agent 模态框 -->
-    <dialog :class="['modal', showEditModal && 'modal-open']">
-      <div class="modal-box">
-        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="showEditModal = false">
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">编辑 Agent</h3>
-
-        <form @submit.prevent="handleEdit" class="space-y-4">
-          <div class="form-control">
-            <label class="label"><span class="label-text">名称</span></label>
-            <input v-model="editForm.name" type="text" class="input input-bordered" />
-          </div>
-          <div class="form-control">
-            <label class="label"><span class="label-text">轮询间隔 (秒)</span></label>
-            <input v-model.number="editForm.poll_interval" type="number" class="input input-bordered" min="60" />
-          </div>
-          <div class="modal-action">
-            <button type="button" class="btn" @click="showEditModal = false">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="editing">
-              <span v-if="editing" class="loading loading-spinner loading-sm"></span>
-              <Save v-else class="w-4 h-4" />
-              保存
-            </button>
-          </div>
-        </form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showEditModal = false">close</button>
-      </form>
-    </dialog>
+    <FormModal
+      :show="showEditModal"
+      title="编辑 Agent"
+      :loading="editing"
+      @close="showEditModal = false"
+      @submit="handleEdit"
+    >
+      <FormGrid>
+        <FormField label="名称" required>
+          <input v-model="editForm.name" type="text" class="input input-bordered" />
+        </FormField>
+        <FormField label="轮询间隔" hint="秒">
+          <input v-model.number="editForm.poll_interval" type="number" class="input input-bordered" min="60" />
+        </FormField>
+      </FormGrid>
+    </FormModal>
 
     <!-- 连接信息模态框 -->
-    <dialog :class="['modal', showConnectModal && 'modal-open']">
-      <div class="modal-box">
-        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="showConnectModal = false">
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">新连接信息</h3>
-        <div class="alert alert-warning mb-4">
-          <AlertTriangle class="w-5 h-5" />
-          <span>密钥已重置，请更新 Agent 配置！</span>
-        </div>
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">连接 URL</span>
-          </label>
-          <div class="flex gap-2">
-            <input :value="connectUrl" type="text" class="input input-bordered flex-1 font-mono text-xs" readonly />
-            <button class="btn btn-ghost" @click="copyConnectUrl" :title="copiedType === 'url' ? '已复制!' : '复制 URL'">
-              <Check v-if="copiedType === 'url'" class="w-5 h-5 text-success" />
-              <Copy v-else class="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-        <div class="mt-4 p-4 bg-base-200 rounded-lg">
-          <div class="flex items-center justify-between mb-2">
-            <p class="text-sm font-medium">在目标服务器上运行:</p>
-            <button class="btn btn-ghost btn-xs" @click="copyCommand" :title="copiedType === 'command' ? '已复制!' : '复制命令'">
-              <Check v-if="copiedType === 'command'" class="w-4 h-4 text-success" />
-              <Copy v-else class="w-4 h-4" />
-              <span class="ml-1">{{ copiedType === 'command' ? '已复制' : '复制命令' }}</span>
-            </button>
-          </div>
-          <pre class="text-xs overflow-x-auto bg-base-300 p-2 rounded">./letsync-agent "{{ connectUrl }}"</pre>
-        </div>
-        <div class="modal-action">
-          <button class="btn btn-primary" @click="showConnectModal = false">确定</button>
-        </div>
+    <Modal
+      :show="showConnectModal"
+      title="新连接信息"
+      @close="showConnectModal = false"
+    >
+      <div class="alert alert-warning mb-4">
+        <AlertTriangle class="w-5 h-5" />
+        <span>密钥已重置，请更新 Agent 配置！</span>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showConnectModal = false">close</button>
-      </form>
-    </dialog>
-
-    <!-- 添加证书绑定模态框 -->
-    <dialog :class="['modal', showAddCertModal && 'modal-open']">
-      <div class="modal-box max-w-lg">
-        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="showAddCertModal = false">
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">添加证书绑定</h3>
-
-        <form @submit.prevent="handleAddCert" class="space-y-4">
-          <div v-if="addCertError" class="alert alert-error text-sm">{{ addCertError }}</div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">选择证书 *</span></label>
-            <select v-model="addCertForm.cert_id" class="select select-bordered w-full">
-              <option :value="0" disabled>请选择</option>
-              <option v-for="c in availableCerts" :key="c.id" :value="c.id">
-                {{ c.domain }}
-              </option>
-            </select>
-          </div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">部署路径</span></label>
-            <input v-model="addCertForm.deploy_path" type="text" class="input input-bordered w-full" placeholder="/etc/ssl/certs" />
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <div class="form-control">
-              <label class="label"><span class="label-text text-sm">证书文件名</span></label>
-              <input v-model="addCertForm.file_mapping.cert" type="text" class="input input-bordered input-sm" />
-            </div>
-            <div class="form-control">
-              <label class="label"><span class="label-text text-sm">私钥文件名</span></label>
-              <input v-model="addCertForm.file_mapping.key" type="text" class="input input-bordered input-sm" />
-            </div>
-            <div class="form-control">
-              <label class="label"><span class="label-text text-sm">完整链文件名</span></label>
-              <input v-model="addCertForm.file_mapping.fullchain" type="text" class="input input-bordered input-sm" />
-            </div>
-          </div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">重载命令</span></label>
-            <input v-model="addCertForm.reload_cmd" type="text" class="input input-bordered w-full" placeholder="systemctl reload nginx" />
-          </div>
-
-          <div class="modal-action">
-            <button type="button" class="btn" @click="showAddCertModal = false">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="addingCert">
-              <span v-if="addingCert" class="loading loading-spinner loading-sm"></span>
-              添加
-            </button>
-          </div>
-        </form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showAddCertModal = false">close</button>
-      </form>
-    </dialog>
-
-    <!-- 编辑证书绑定模态框 -->
-    <dialog :class="['modal', editCertId !== null && 'modal-open']">
-      <div class="modal-box max-w-lg">
-        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="editCertId = null">
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">编辑证书绑定</h3>
-
-        <form @submit.prevent="handleEditCert" class="space-y-4">
-          <div class="form-control">
-            <label class="label"><span class="label-text">部署路径</span></label>
-            <input v-model="editCertForm.deploy_path" type="text" class="input input-bordered w-full" />
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <div class="form-control">
-              <label class="label"><span class="label-text text-sm">证书文件名</span></label>
-              <input v-model="editCertForm.file_mapping.cert" type="text" class="input input-bordered input-sm" />
-            </div>
-            <div class="form-control">
-              <label class="label"><span class="label-text text-sm">私钥文件名</span></label>
-              <input v-model="editCertForm.file_mapping.key" type="text" class="input input-bordered input-sm" />
-            </div>
-            <div class="form-control">
-              <label class="label"><span class="label-text text-sm">完整链文件名</span></label>
-              <input v-model="editCertForm.file_mapping.fullchain" type="text" class="input input-bordered input-sm" />
-            </div>
-          </div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">重载命令</span></label>
-            <input v-model="editCertForm.reload_cmd" type="text" class="input input-bordered w-full" />
-          </div>
-
-          <div class="modal-action">
-            <button type="button" class="btn" @click="editCertId = null">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="editingCert">
-              <span v-if="editingCert" class="loading loading-spinner loading-sm"></span>
-              <Save v-else class="w-4 h-4" />
-              保存
-            </button>
-          </div>
-        </form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="editCertId = null">close</button>
-      </form>
-    </dialog>
-
-    <!-- 删除证书绑定确认 -->
-    <dialog :class="['modal', deleteCertId !== null && 'modal-open']">
-      <div class="modal-box">
-        <button
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-          @click="deleteCertId = null"
-        >
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg">确认删除</h3>
-        <p class="py-4">确定要移除这个证书绑定吗？</p>
-        <div class="modal-action">
-          <button class="btn" @click="deleteCertId = null">取消</button>
-          <button class="btn btn-error" :disabled="deletingCert" @click="handleDeleteCert">
-            <span v-if="deletingCert" class="loading loading-spinner loading-sm"></span>
-            删除
+      <div class="form-control">
+        <label class="label">
+          <span class="label-text">连接 URL</span>
+        </label>
+        <div class="flex gap-2">
+          <input :value="connectUrl" type="text" class="input input-bordered flex-1 font-mono text-xs" readonly />
+          <button class="btn btn-ghost" @click="copyConnectUrl" :title="copiedType === 'url' ? '已复制!' : '复制 URL'">
+            <Check v-if="copiedType === 'url'" class="w-5 h-5 text-success" />
+            <Copy v-else class="w-5 h-5" />
           </button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="deleteCertId = null">close</button>
-      </form>
-    </dialog>
+      <div class="mt-4 p-4 bg-base-200 rounded-lg">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-sm font-medium">在目标服务器上运行:</p>
+          <button class="btn btn-ghost btn-xs" @click="copyCommand" :title="copiedType === 'command' ? '已复制!' : '复制命令'">
+            <Check v-if="copiedType === 'command'" class="w-4 h-4 text-success" />
+            <Copy v-else class="w-4 h-4" />
+            <span class="ml-1">{{ copiedType === 'command' ? '已复制' : '复制命令' }}</span>
+          </button>
+        </div>
+        <pre class="text-xs overflow-x-auto bg-base-300 p-2 rounded">./letsync-agent "{{ connectUrl }}"</pre>
+      </div>
+      <template #footer>
+        <button class="btn btn-primary" @click="showConnectModal = false">确定</button>
+      </template>
+    </Modal>
+
+    <!-- 添加证书绑定模态框 -->
+    <FormModal
+      :show="showAddCertModal"
+      title="添加证书绑定"
+      :loading="addingCert"
+      :error="addCertError"
+      submit-text="添加"
+      @close="showAddCertModal = false"
+      @submit="handleAddCert"
+    >
+      <FormGrid>
+        <FormField label="选择证书" required>
+          <select v-model="addCertForm.cert_id" class="select select-bordered w-full">
+            <option :value="0" disabled>请选择</option>
+            <option v-for="c in availableCerts" :key="c.id" :value="c.id">
+              {{ c.domain }}
+            </option>
+          </select>
+        </FormField>
+
+        <FormField label="部署路径">
+          <input v-model="addCertForm.deploy_path" type="text" class="input input-bordered w-full" placeholder="/etc/ssl/certs" />
+        </FormField>
+
+        <FormField label="重载命令">
+          <input v-model="addCertForm.reload_cmd" type="text" class="input input-bordered w-full" placeholder="systemctl reload nginx" />
+        </FormField>
+      </FormGrid>
+
+      <div class="divider text-sm">文件名映射</div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div class="form-control">
+          <label class="label"><span class="label-text text-sm">证书文件名</span></label>
+          <input v-model="addCertForm.file_mapping.cert" type="text" class="input input-bordered input-sm" />
+        </div>
+        <div class="form-control">
+          <label class="label"><span class="label-text text-sm">私钥文件名</span></label>
+          <input v-model="addCertForm.file_mapping.key" type="text" class="input input-bordered input-sm" />
+        </div>
+        <div class="form-control">
+          <label class="label"><span class="label-text text-sm">完整链文件名</span></label>
+          <input v-model="addCertForm.file_mapping.fullchain" type="text" class="input input-bordered input-sm" />
+        </div>
+      </div>
+    </FormModal>
+
+    <!-- 编辑证书绑定模态框 -->
+    <FormModal
+      :show="editCertId !== null"
+      title="编辑证书绑定"
+      :loading="editingCert"
+      @close="editCertId = null"
+      @submit="handleEditCert"
+    >
+      <FormGrid>
+        <FormField label="部署路径">
+          <input v-model="editCertForm.deploy_path" type="text" class="input input-bordered w-full" />
+        </FormField>
+
+        <FormField label="重载命令">
+          <input v-model="editCertForm.reload_cmd" type="text" class="input input-bordered w-full" />
+        </FormField>
+      </FormGrid>
+
+      <div class="divider text-sm">文件名映射</div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div class="form-control">
+          <label class="label"><span class="label-text text-sm">证书文件名</span></label>
+          <input v-model="editCertForm.file_mapping.cert" type="text" class="input input-bordered input-sm" />
+        </div>
+        <div class="form-control">
+          <label class="label"><span class="label-text text-sm">私钥文件名</span></label>
+          <input v-model="editCertForm.file_mapping.key" type="text" class="input input-bordered input-sm" />
+        </div>
+        <div class="form-control">
+          <label class="label"><span class="label-text text-sm">完整链文件名</span></label>
+          <input v-model="editCertForm.file_mapping.fullchain" type="text" class="input input-bordered input-sm" />
+        </div>
+      </div>
+    </FormModal>
+
+    <!-- 删除证书绑定确认 -->
+    <Modal
+      :show="deleteCertId !== null"
+      title="确认删除"
+      size="sm"
+      @close="deleteCertId = null"
+    >
+      <p>确定要移除这个证书绑定吗？</p>
+      <template #footer>
+        <button class="btn" @click="deleteCertId = null">取消</button>
+        <button class="btn btn-error" :disabled="deletingCert" @click="handleDeleteCert">
+          <span v-if="deletingCert" class="loading loading-spinner loading-sm"></span>
+          删除
+        </button>
+      </template>
+    </Modal>
 
     <!-- 重置密钥确认 -->
-    <dialog :class="['modal', showRegenerateConfirm && 'modal-open']">
-      <div class="modal-box">
-        <button
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-          @click="showRegenerateConfirm = false"
-        >
-          <X class="w-4 h-4" />
-        </button>
+    <Modal
+      :show="showRegenerateConfirm"
+      title="确认重置密钥"
+      size="sm"
+      @close="showRegenerateConfirm = false"
+    >
+      <template #header>
         <h3 class="font-bold text-lg flex items-center gap-2">
           <AlertTriangle class="w-5 h-5 text-warning" />
           确认重置密钥
         </h3>
-        <p class="py-4">重置密钥后，该 Agent 需要重新配置连接信息才能继续同步证书。确定要继续吗？</p>
-        <div class="modal-action">
-          <button class="btn" @click="showRegenerateConfirm = false">取消</button>
-          <button class="btn btn-warning" @click="handleRegenerate">
-            确认重置
-          </button>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="showRegenerateConfirm = false">close</button>
-      </form>
-    </dialog>
+      </template>
+      <p>重置密钥后，该 Agent 需要重新配置连接信息才能继续同步证书。确定要继续吗？</p>
+      <template #footer>
+        <button class="btn" @click="showRegenerateConfirm = false">取消</button>
+        <button class="btn btn-warning" @click="handleRegenerate">
+          确认重置
+        </button>
+      </template>
+    </Modal>
   </div>
 </template>

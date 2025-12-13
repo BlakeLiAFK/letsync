@@ -3,6 +3,9 @@ import { ref, onMounted } from 'vue'
 import { workspacesApi } from '@/api'
 import { useToast } from '@/stores/toast'
 import { useConfirm } from '@/stores/confirm'
+import FormModal from '@/components/FormModal.vue'
+import FormGrid from '@/components/FormGrid.vue'
+import FormField from '@/components/FormField.vue'
 import {
   Plus,
   RefreshCw,
@@ -10,8 +13,6 @@ import {
   Edit,
   AlertTriangle,
   Layers,
-  X,
-  Save,
   Star,
   FileKey
 } from 'lucide-vue-next'
@@ -300,77 +301,60 @@ onMounted(loadData)
     </div>
 
     <!-- 新建/编辑模态框 -->
-    <dialog :class="['modal', showModal && 'modal-open']">
-      <div class="modal-box max-w-lg">
-        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="showModal = false">
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">{{ isEdit ? '编辑' : '新建' }}工作区</h3>
+    <FormModal
+      :show="showModal"
+      :title="`${isEdit ? '编辑' : '新建'}工作区`"
+      :loading="saving"
+      :error="formError"
+      @close="showModal = false"
+      @submit="handleSave"
+    >
+      <FormGrid>
+        <FormField label="名称" required>
+          <input v-model="form.name" type="text" class="input input-bordered" placeholder="例如: 生产环境" />
+        </FormField>
 
-        <form @submit.prevent="handleSave" class="space-y-4">
-          <div v-if="formError" class="alert alert-error text-sm">{{ formError }}</div>
+        <FormField label="描述">
+          <input v-model="form.description" type="text" class="input input-bordered" placeholder="可选描述" />
+        </FormField>
 
-          <div class="form-control">
-            <label class="label"><span class="label-text">名称 *</span></label>
-            <input v-model="form.name" type="text" class="input input-bordered" placeholder="例如: 生产环境" />
-          </div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">描述</span></label>
-            <input v-model="form.description" type="text" class="input input-bordered" placeholder="可选描述" />
-          </div>
-
-          <!-- CA 预设选择 -->
-          <div class="form-control">
-            <label class="label"><span class="label-text">CA 预设</span></label>
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="preset in presets"
-                :key="preset.ca_url"
-                type="button"
-                :class="[
-                  'btn btn-sm',
-                  form.ca_url === preset.ca_url ? 'btn-primary' : 'btn-outline'
-                ]"
-                @click="onPresetSelect(preset)"
-              >
-                {{ preset.name }}
-              </button>
-            </div>
-          </div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">CA URL *</span></label>
-            <input
-              v-model="form.ca_url"
-              type="url"
-              class="input input-bordered"
-              placeholder="https://acme-v02.api.letsencrypt.org/directory"
-            />
-          </div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">邮箱 *</span></label>
-            <input v-model="form.email" type="email" class="input input-bordered" placeholder="admin@example.com" />
-          </div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">密钥类型</span></label>
-            <select v-model="form.key_type" class="select select-bordered">
-              <option v-for="kt in keyTypes" :key="kt.value" :value="kt.value">{{ kt.label }}</option>
-            </select>
-          </div>
-
-          <div class="modal-action">
-            <button type="button" class="btn" @click="showModal = false">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="saving">
-              <span v-if="saving" class="loading loading-spinner loading-sm"></span>
-              <Save v-else class="w-4 h-4" />
-              保存
+        <!-- CA 预设选择 -->
+        <FormField label="CA 预设">
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="preset in presets"
+              :key="preset.ca_url"
+              type="button"
+              :class="[
+                'btn btn-sm',
+                form.ca_url === preset.ca_url ? 'btn-primary' : 'btn-outline'
+              ]"
+              @click="onPresetSelect(preset)"
+            >
+              {{ preset.name }}
             </button>
           </div>
-        </form>
-      </div>
-    </dialog>
+        </FormField>
+
+        <FormField label="CA URL" required>
+          <input
+            v-model="form.ca_url"
+            type="url"
+            class="input input-bordered"
+            placeholder="https://acme-v02.api.letsencrypt.org/directory"
+          />
+        </FormField>
+
+        <FormField label="邮箱" required>
+          <input v-model="form.email" type="email" class="input input-bordered" placeholder="admin@example.com" />
+        </FormField>
+
+        <FormField label="密钥类型">
+          <select v-model="form.key_type" class="select select-bordered">
+            <option v-for="kt in keyTypes" :key="kt.value" :value="kt.value">{{ kt.label }}</option>
+          </select>
+        </FormField>
+      </FormGrid>
+    </FormModal>
   </div>
 </template>

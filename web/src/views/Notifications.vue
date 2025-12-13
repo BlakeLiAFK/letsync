@@ -3,6 +3,9 @@ import { ref, onMounted } from 'vue'
 import { notificationsApi } from '@/api'
 import { useToast } from '@/stores/toast'
 import { useConfirm } from '@/stores/confirm'
+import FormModal from '@/components/FormModal.vue'
+import FormGrid from '@/components/FormGrid.vue'
+import FormField from '@/components/FormField.vue'
 import {
   Plus,
   RefreshCw,
@@ -10,8 +13,6 @@ import {
   Edit,
   AlertTriangle,
   Bell,
-  X,
-  Save,
   Send,
   Check,
   XCircle
@@ -284,70 +285,58 @@ onMounted(loadData)
     </div>
 
     <!-- 新建/编辑模态框 -->
-    <dialog :class="['modal', showModal && 'modal-open']">
-      <div class="modal-box max-w-lg">
-        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="showModal = false">
-          <X class="w-4 h-4" />
-        </button>
-        <h3 class="font-bold text-lg mb-4">{{ isEdit ? '编辑' : '添加' }}通知渠道</h3>
+    <FormModal
+      :show="showModal"
+      :title="`${isEdit ? '编辑' : '添加'}通知渠道`"
+      :loading="saving"
+      :error="formError"
+      @close="showModal = false"
+      @submit="handleSave"
+    >
+      <FormGrid>
+        <FormField label="名称" required>
+          <input v-model="form.name" type="text" class="input input-bordered" placeholder="例如: 我的 Webhook" />
+        </FormField>
 
-        <form @submit.prevent="handleSave" class="space-y-4">
-          <div v-if="formError" class="alert alert-error text-sm">{{ formError }}</div>
+        <FormField label="类型" required>
+          <select v-model="form.type" class="select select-bordered" @change="onTypeChange" :disabled="isEdit">
+            <option value="" disabled>请选择</option>
+            <option v-for="t in notifyTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
+          </select>
+        </FormField>
 
-          <div class="form-control">
-            <label class="label"><span class="label-text">名称 *</span></label>
-            <input v-model="form.name" type="text" class="input input-bordered" placeholder="例如: 我的 Webhook" />
-          </div>
+        <FormField label="启用通知">
+          <input v-model="form.enabled" type="checkbox" class="toggle toggle-primary" />
+        </FormField>
+      </FormGrid>
 
-          <div class="form-control">
-            <label class="label"><span class="label-text">类型 *</span></label>
-            <select v-model="form.type" class="select select-bordered" @change="onTypeChange" :disabled="isEdit">
-              <option value="" disabled>请选择</option>
-              <option v-for="t in notifyTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
-            </select>
-          </div>
+      <template v-if="form.type">
+        <div class="divider text-sm">配置{{ isEdit ? ' (留空则不修改)' : '' }}</div>
 
-          <div class="form-control">
-            <label class="cursor-pointer label justify-start gap-3">
-              <input v-model="form.enabled" type="checkbox" class="toggle toggle-primary" />
-              <span class="label-text">启用通知</span>
-            </label>
-          </div>
+        <!-- 编辑模式提示 -->
+        <div v-if="isEdit" class="alert alert-info text-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          <span>敏感字段已隐藏显示，留空则保持原值不变</span>
+        </div>
 
-          <template v-if="form.type">
-            <div class="divider text-sm">配置{{ isEdit ? ' (留空则不修改)' : '' }}</div>
-
-            <!-- 编辑模式提示 -->
-            <div v-if="isEdit" class="alert alert-info text-sm mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-              </svg>
-              <span>敏感字段已隐藏显示，留空则保持原值不变</span>
-            </div>
-
-            <div v-for="field in getConfigFields(form.type)" :key="field" class="form-control">
-              <label class="label">
-                <span class="label-text">{{ field }}{{ isEdit ? '' : ' *' }}</span>
-              </label>
-              <input
-                v-model="form.config[field]"
-                :type="field.includes('pass') || field.includes('token') || field.includes('secret') || field.includes('key') ? 'password' : 'text'"
-                class="input input-bordered"
-                :placeholder="isEdit ? '留空则不修改' : ''"
-              />
-            </div>
-          </template>
-
-          <div class="modal-action">
-            <button type="button" class="btn" @click="showModal = false">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="saving">
-              <span v-if="saving" class="loading loading-spinner loading-sm"></span>
-              <Save v-else class="w-4 h-4" />
-              保存
-            </button>
-          </div>
-        </form>
-      </div>
-    </dialog>
+        <FormGrid>
+          <FormField
+            v-for="field in getConfigFields(form.type)"
+            :key="field"
+            :label="field"
+            :required="!isEdit"
+          >
+            <input
+              v-model="form.config[field]"
+              :type="field.includes('pass') || field.includes('token') || field.includes('secret') || field.includes('key') ? 'password' : 'text'"
+              class="input input-bordered"
+              :placeholder="isEdit ? '留空则不修改' : ''"
+            />
+          </FormField>
+        </FormGrid>
+      </template>
+    </FormModal>
   </div>
 </template>

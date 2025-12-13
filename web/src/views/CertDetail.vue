@@ -30,6 +30,7 @@ import {
   Layers
 } from 'lucide-vue-next'
 import TaskLogModal from '@/components/TaskLogModal.vue'
+import Modal from '@/components/Modal.vue'
 
 interface CertInfo {
   issuer: string
@@ -528,50 +529,50 @@ onMounted(loadData)
     </template>
 
     <!-- PEM 内容弹窗 -->
-    <dialog :class="['modal', showPemModal && 'modal-open']">
-      <div class="modal-box max-w-3xl">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-lg">{{ pemModalTitle }}</h3>
-          <div class="flex gap-2">
-            <!-- 私钥显示/隐藏切换 -->
-            <button
-              v-if="pemModalType === 'key'"
-              class="btn btn-ghost btn-sm gap-1"
-              @click="showPrivateKey = !showPrivateKey"
-            >
-              <Eye v-if="!showPrivateKey" class="w-4 h-4" />
-              <EyeOff v-else class="w-4 h-4" />
-              {{ showPrivateKey ? '隐藏' : '显示' }}
-            </button>
-            <button
-              class="btn btn-ghost btn-sm gap-1"
-              @click="copyToClipboard(pemModalContent, pemModalType)"
-            >
-              <Check v-if="copied === pemModalType" class="w-4 h-4 text-success" />
-              <Copy v-else class="w-4 h-4" />
-              复制
-            </button>
-            <button
-              class="btn btn-ghost btn-sm gap-1"
-              @click="downloadFile(pemModalContent, pemModalFilename)"
-            >
-              <Download class="w-4 h-4" />
-              下载
-            </button>
-          </div>
+    <Modal
+      :show="showPemModal"
+      :title="pemModalTitle"
+      size="lg"
+      @close="showPemModal = false"
+    >
+      <template #header>
+        <h3 class="font-bold text-lg">{{ pemModalTitle }}</h3>
+        <div class="flex gap-2">
+          <!-- 私钥显示/隐藏切换 -->
+          <button
+            v-if="pemModalType === 'key'"
+            class="btn btn-ghost btn-sm gap-1"
+            @click="showPrivateKey = !showPrivateKey"
+          >
+            <Eye v-if="!showPrivateKey" class="w-4 h-4" />
+            <EyeOff v-else class="w-4 h-4" />
+            {{ showPrivateKey ? '隐藏' : '显示' }}
+          </button>
+          <button
+            class="btn btn-ghost btn-sm gap-1"
+            @click="copyToClipboard(pemModalContent, pemModalType)"
+          >
+            <Check v-if="copied === pemModalType" class="w-4 h-4 text-success" />
+            <Copy v-else class="w-4 h-4" />
+            复制
+          </button>
+          <button
+            class="btn btn-ghost btn-sm gap-1"
+            @click="downloadFile(pemModalContent, pemModalFilename)"
+          >
+            <Download class="w-4 h-4" />
+            下载
+          </button>
         </div>
-        <div class="bg-base-200 rounded-lg p-4 max-h-96 overflow-auto">
-          <pre v-if="pemModalType === 'key' && !showPrivateKey" class="text-xs whitespace-pre-wrap break-all text-base-content/60">{{ '********\n私钥内容已隐藏，点击「显示」按钮查看' }}</pre>
-          <pre v-else class="text-xs whitespace-pre-wrap break-all">{{ pemModalContent || '暂无内容' }}</pre>
-        </div>
-        <div class="modal-action">
-          <button class="btn" @click="showPemModal = false">关闭</button>
-        </div>
+      </template>
+      <div class="bg-base-200 rounded-lg p-4 max-h-96 overflow-auto">
+        <pre v-if="pemModalType === 'key' && !showPrivateKey" class="text-xs whitespace-pre-wrap break-all text-base-content/60">{{ '********\n私钥内容已隐藏，点击「显示」按钮查看' }}</pre>
+        <pre v-else class="text-xs whitespace-pre-wrap break-all">{{ pemModalContent || '暂无内容' }}</pre>
       </div>
-      <form method="dialog" class="modal-backdrop" @click="showPemModal = false">
-        <button>close</button>
-      </form>
-    </dialog>
+      <template #footer>
+        <button class="btn" @click="showPemModal = false">关闭</button>
+      </template>
+    </Modal>
 
     <!-- 日志弹窗 -->
     <TaskLogModal
